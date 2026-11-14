@@ -1,0 +1,27 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Caches & temporary outputs
+.cache/
+*.tmp
+*.tmp.wav
+/tmp/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Large model weights (CoreML weights can exceed GitHub 100MB limit)
+# Run `bash scripts/setup_models.sh` to download/verify local models
+models/
+!models/.gitkeep
