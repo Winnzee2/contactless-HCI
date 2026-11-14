@@ -27,8 +27,8 @@ def download(url: str, destination: Path) -> None:
         partial.unlink(missing_ok=True)
 
 
-def setup(model: str) -> None:
-    config = STTConfig(model_name=model)
+def setup(model: str, language: str = "auto") -> None:
+    config = STTConfig(model_name=model, language=language)
     if not config.is_cli_available():
         raise RuntimeError("Install Argmax first: brew install whisperkit-cli")
     repo = "argmaxinc/whisperkit-coreml"
@@ -67,11 +67,13 @@ def setup(model: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", choices=("tiny.en", "base.en", "all"), default="tiny.en")
+    parser.add_argument("--model", choices=("tiny", "base", "tiny.en", "base.en", "all"), default="tiny.en",
+                        help="Bare tiny/base are multilingual; all prepares the two English .en models")
+    parser.add_argument("--language", default="auto", help="Smoke-test language, e.g. en or auto (default)")
     args = parser.parse_args()
     try:
         for model in (("tiny.en", "base.en") if args.model == "all" else (args.model,)):
-            setup(model)
+            setup(model, language=args.language)
     except Exception as error:
         print(f"Setup failed: {error}", file=sys.stderr)
         return 1

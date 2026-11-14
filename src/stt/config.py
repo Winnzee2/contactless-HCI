@@ -17,7 +17,8 @@ class STTConfig:
     """Configuration for local offline WhisperKit speech-to-text inference."""
 
     # Model identifiers
-    # Default to tiny.en for lowest latency (~35ms) on Apple Silicon Neural Engine
+    # Speech-only entry points retain the small English default. Use base/tiny
+    # (without .en) for multilingual recordings, including Chinese.
     model_name: str = "openai_whisper-tiny.en"
     tokenizer_name: str = "whisper-tiny.en"
 
@@ -35,7 +36,7 @@ class STTConfig:
     text_decoder_compute_units: str = "cpuAndNeuralEngine"
 
     # Transcription parameters
-    language: str = "en"
+    language: Optional[str] = "en"  # None or "auto" enables language detection.
     task: str = "transcribe"  # "transcribe" or "translate"
     temperature: float = 0.0
     chunking_strategy: str = "vad"  # "vad" or "none"
@@ -63,13 +64,12 @@ class STTConfig:
         else:
             self.cli_binary = shutil.which(self.cli_binary) or self.cli_binary
 
-        # Normalize model names
-        if self.model_name in ("tiny", "tiny.en", "whisper-tiny.en", "openai_whisper-tiny.en"):
-            self.model_name = "openai_whisper-tiny.en"
-            self.tokenizer_name = "whisper-tiny.en"
-        elif self.model_name in ("base", "base.en", "whisper-base.en", "openai_whisper-base.en"):
-            self.model_name = "openai_whisper-base.en"
-            self.tokenizer_name = "whisper-base.en"
+        # .en names are English-only; bare names are genuinely multilingual.
+        for variant in ("tiny", "base", "tiny.en", "base.en"):
+            if self.model_name in (variant, f"whisper-{variant}", f"openai_whisper-{variant}"):
+                self.model_name = f"openai_whisper-{variant}"
+                self.tokenizer_name = f"whisper-{variant}"
+                break
 
         # Resolve model path
         if self.model_path is None:

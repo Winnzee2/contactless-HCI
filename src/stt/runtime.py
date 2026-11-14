@@ -22,9 +22,10 @@ def offline_command(config: STTConfig) -> list[str]:
         "--text-decoder-compute-units", config.text_decoder_compute_units,
         "--temperature", str(config.temperature),
         "--task", config.task,
-        "--language", config.language,
         "--chunking-strategy", config.chunking_strategy,
     ]
+    if config.language not in (None, "auto"):
+        cmd.extend(["--language", config.language])
     if config.suppress_special_tokens:
         cmd.append("--skip-special-tokens")
     return cmd

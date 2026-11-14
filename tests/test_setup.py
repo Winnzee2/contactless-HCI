@@ -16,6 +16,19 @@ spec.loader.exec_module(setup_models)
 
 
 class TestModelSetup(unittest.TestCase):
+    def test_multilingual_setup_and_auto_language_are_selectable(self):
+        with patch.object(setup_models, "setup") as setup, \
+             patch("sys.argv", ["setup_models.py", "--model", "base", "--language", "auto"]), \
+             patch("builtins.print"):
+            self.assertEqual(setup_models.main(), 0)
+        setup.assert_called_once_with("base", language="auto")
+
+    def test_all_preserves_the_two_english_variants(self):
+        with patch.object(setup_models, "setup") as setup, \
+             patch("sys.argv", ["setup_models.py", "--model", "all"]), patch("builtins.print"):
+            self.assertEqual(setup_models.main(), 0)
+        self.assertEqual([call.args[0] for call in setup.call_args_list], ["tiny.en", "base.en"])
+
     def test_truncated_download_preserves_existing_file(self):
         response = io.BytesIO(b"partial")
         response.headers = {"Content-Length": "1000"}

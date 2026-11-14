@@ -47,6 +47,25 @@ class TestWhisperKitEngine(unittest.TestCase):
         config = STTConfig(model_name="openai_whisper-base.en", models_dir=Path(self.temp.name))
         self.assertEqual(config.tokenizer_name, "whisper-base.en")
 
+    def test_multilingual_models_and_aliases_keep_matching_tokenizers(self):
+        for variant in ("tiny", "base", "tiny.en", "base.en"):
+            for name in (variant, f"whisper-{variant}", f"openai_whisper-{variant}"):
+                with self.subTest(name=name):
+                    config = STTConfig(model_name=name, models_dir=Path(self.temp.name))
+                    self.assertEqual(config.model_name, f"openai_whisper-{variant}")
+                    self.assertEqual(config.tokenizer_name, f"whisper-{variant}")
+                    self.assertEqual(config.model_path.name, f"openai_whisper-{variant}")
+                    self.assertEqual(config.tokenizer_path.name, f"whisper-{variant}")
+
+    def test_automatic_language_detection_omits_language_flag(self):
+        for language in (None, "auto"):
+            config = STTConfig(model_name="base", language=language)
+            self.assertNotIn("--language", offline_command(config))
+        for language in ("en", "zh"):
+            config = STTConfig(model_name="base", language=language)
+            command = offline_command(config)
+            self.assertEqual(command[command.index("--language") + 1], language)
+
     def test_incomplete_mel_model_rejected(self):
         (self.config.model_path / "MelSpectrogram.mlmodelc/weights/weight.bin").unlink()
         self.assertFalse(self.config.is_model_available())
