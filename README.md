@@ -2,9 +2,9 @@
 
 在 Apple Silicon Mac 上，用食指移动鼠标，用手势点击，用语音说出附近可见文字来定位目标。摄像头识别、语音转写、屏幕文字识别和 Bonsai 推理都在本机完成。
 
-**语音只负责定位，不执行点击。** 例如，把指针移到标签附近，说“Codex”，指针会移动到识别出的目标并暂时锁定；再用拇指与中指捏合完成左键点击。
+**语音只负责定位，不执行点击。** 例如，把指针移到标签附近，说“Codex”，指针会移动到识别出的目标并锁定。前 **3 秒**忽略食指移动，给你时间用拇指与中指捏合完成左键点击。
 
-English: An offline desktop controller. Point with your index finger, name a nearby visible label to target it, and pinch to click. Argmax transcribes audio; Bonsai selects a local OCR candidate. Voice never clicks.
+English: An offline desktop controller. Point with your index finger, name a nearby visible label to target it, and pinch to click. Argmax transcribes audio; Bonsai selects a local OCR candidate. Voice never clicks. A selected target ignores finger movement for three seconds so you can prepare a pinch; clicking, pausing, or losing hand tracking clears the lock immediately.
 
 ## 启动 / Launch
 
@@ -41,10 +41,13 @@ python3 desktop.py
 | 拇指 + 中指捏合 | 左键单击；松开后才能再次触发 |
 | 拇指 + 无名指捏合 | 右键单击 |
 | 说出附近文字，例如“Codex” | Argmax 转写 → 局部 OCR → Bonsai 选择 → 指针定位；不点击 |
-| 明显移动手部 | 解除语音定位后的指针锁定 |
+| 定位后前 3 秒移动食指 | 保持目标位置，方便准备捏合 |
+| 定位 3 秒后明显移动手部 | 解除锁定；手保持稳定时继续锁定 |
 | 空格（控制窗口内） | 开启 / 暂停 |
 | Escape | 暂停控制 |
 | Q（控制窗口内）或关闭窗口 | 退出 |
+
+捏合点击后立即解除锁定。暂停或丢失可靠的手部跟踪也会立即清除锁定，不受 3 秒保护期限制。
 
 其他启动方式：
 
@@ -88,7 +91,7 @@ bash scripts/start_bonsai.sh
 
 Argmax 推理进程禁止联网。Bonsai 启动脚本禁止外网，仅允许本机回环通信，并开启模型库的离线模式。`127.0.0.1` 在 Wi-Fi 关闭后仍可使用。
 
-**2026-11-14 实测：** 这台 Mac 的 Wi-Fi 已实际关闭，摄像头和真实屏幕 OCR 检查通过；合成语音经真实 Argmax、Bonsai 和控制器生成了正确的 `Codex` 移动指令。检查结束后已恢复 Wi-Fi。该链路测试截获鼠标指令，未向系统发送移动或点击；真人说“Codex”后实际定位再捏合点击的完整连续演示仍需完成。具体证据和范围见 [验证记录](docs/VERIFICATION.md)，操作流程见 [演示指南](docs/DEMO.md)。
+**2026-11-14 实测：** 在 Wi-Fi 实际关闭期间，摄像头、真实屏幕 OCR，以及合成语音经真实 Argmax、Bonsai、控制器生成 `Codex` 移动指令的检查通过，之后已恢复 Wi-Fi。另一次 **Wi-Fi 开启**的真人测试完成了“说 Codex → 指针实际定位 → 手势左键/右键”和“说 Safari → 定位 → 手势左键”，本地浏览器验收板收到了点击。这两次验证的网络状态和输入方式不同；尚未录制完整的断网真人演示视频。具体证据见 [验证记录](docs/VERIFICATION.md)，复现流程见 [演示指南](docs/DEMO.md)。
 
 ## 定位范围与当前限制
 
@@ -97,7 +100,7 @@ Argmax 推理进程禁止联网。Bonsai 启动脚本禁止外网，仅允许本
 - 重复标签、找不到文字、歧义或过期结果不会定位。
 - 支持的是当前可见文字，不是全屏图标识别、隐藏标签搜索或任意界面的自主操作。
 - 原型针对主显示器；窗口遮挡、很小的文字、光线、手部姿态和噪声都可能影响识别。
-- 已完成的断网组件检查不能替代实际语音定位后手势点击的连续操作验收。请按 [两分钟演示检查表](docs/DEMO.md) 验证。
+- 真人连续测试已覆盖本地验收板上的 `Codex` 和 `Safari`；不同应用、目标布局和关闭 Wi-Fi 后的完整录制流程仍按 [两分钟演示检查表](docs/DEMO.md) 验证。
 
 ## 独立的纯转写接口
 

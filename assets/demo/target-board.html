@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Local Control · Offline target board</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #182c3c; background: #f3f6f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 1040px; margin: auto; padding: 24px 28px 60px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+    h1 { font-size: 23px; margin: 0; }
+    .badge { border: 1px solid #a0c5b5; color: #215942; border-radius: 20px; padding: 6px 12px; font-size: 13px; white-space: nowrap; }
+    .instructions { margin: 18px 0 22px; line-height: 1.6; font-size: 15px; }
+    .english { color: #435969; font-size: 13px; }
+    .tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+    .target { position: relative; min-height: 130px; border: 3px solid #a6b9c7; border-radius: 16px 16px 0 0; background: white; color: #132d42; cursor: pointer; font: inherit; font-weight: 700; font-size: clamp(30px, 4.8vw, 48px); }
+    .target::before { content: attr(data-number); position: absolute; left: 13px; top: 9px; font-size: 13px; color: #50697a; font-weight: 500; }
+    .target[aria-selected="true"] { background: #d9eee5; border-color: #28724f; }
+    .target:hover { box-shadow: inset 0 0 0 4px #ebba50; }
+    button:focus-visible, summary:focus-visible { outline: 4px solid #125cb3; outline-offset: 4px; }
+    .panel { background: white; border: 1px solid #c9d6df; border-radius: 0 0 14px 14px; padding: 20px; line-height: 1.6; }
+    #selection { font-weight: 650; }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 22px; }
+    .metric { padding: 16px; border: 1px solid #c9d6df; border-radius: 12px; background: white; }
+    .metric span { display: block; font-size: 12px; line-height: 1.5; color: #435969; }
+    .metric output { display: block; margin-top: 8px; font-size: 28px; font-weight: 650; }
+    .notice { margin-top: 18px; color: #435969; font-size: 13px; line-height: 1.7; }
+    .tools { display: flex; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
+    .tool { font: inherit; font-size: 13px; border: 1px solid #8097a7; background: white; border-radius: 7px; padding: 9px 14px; cursor: pointer; }
+    #export-status { font-size: 13px; min-height: 1.5em; color: #435969; }
+    .evidence { margin-top: 90px; border-top: 1px solid #c9d6df; padding-top: 22px; }
+    summary { cursor: pointer; font-size: 14px; }
+    details p { line-height: 1.7; font-size: 13px; color: #435969; }
+    pre { overflow: auto; max-height: 340px; padding: 16px; border-radius: 8px; background: #172b3a; color: #e5eff6; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    @media (max-width: 600px) {
+      main { padding: 18px 14px 40px; }
+      header { align-items: flex-start; }
+      h1 { font-size: 19px; }
+      .tabs { gap: 8px; }
+      .target { min-height: 110px; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header><h1>手势与语音验收板 · Target board</h1><span class="badge">完全离线 · Offline</span></header>
+  <p class="instructions">指向下面标签附近，说出标签名称。<strong>语音只移动，捏合才点击。</strong><br>
+    拇指 + 中指：左键；拇指 + 无名指：右键。<br>
+    <span class="english">Point near a label and say its name. Voice moves only. Thumb + middle: left click; thumb + ring: right click.</span></p>
+
+  <div class="tabs" role="tablist" aria-label="测试目标 / Test targets">
+    <button class="target" id="target-1" data-number="1" role="tab" aria-controls="target-panel" aria-selected="false" tabindex="0">Codex</button>
+    <button class="target" id="target-2" data-number="2" role="tab" aria-controls="target-panel" aria-selected="false" tabindex="-1">Safari</button>
+    <button class="target" id="target-3" data-number="3" role="tab" aria-controls="target-panel" aria-selected="false" tabindex="-1">Finder</button>
+  </div>
+  <div class="panel" id="target-panel" role="tabpanel" aria-label="选择状态 / Selection state">
+    <div id="selection" aria-live="polite">尚未点击 · No tab selected</div>
+    <div class="english">Left click selects a tab. Right click increments its counter without opening a menu.</div>
+  </div>
+
+  <section class="metrics" aria-label="事件计数 / Event counters">
+    <div class="metric"><span>左键点击 · Left clicks</span><output id="left-count">0</output></div>
+    <div class="metric"><span>右键点击 · Right clicks</span><output id="right-count">0</output></div>
+    <div class="metric"><span>最近悬停目标编号 · Last hovered #</span><output id="last-hover">—</output></div>
+    <div class="metric"><span>最近点击目标编号 · Last clicked #</span><output id="last-click">—</output></div>
+  </section>
+  <p class="notice">悬停出现黄色边框；左键选中后变绿。目标名称只在上方出现一次，避免附近 OCR 重名。<br>
+    Hover shows a yellow border; a left click turns the selected tab green. Numbered readouts refer to the numbers on the tabs.<br>
+    计数来自浏览器事件，普通鼠标也会产生相同记录；它们不能单独证明已完成手势测试。<br>
+    Browser events alone do not prove a gesture was used. This page records no camera or microphone data.</p>
+  <div class="tools">
+    <button class="tool" id="reset" type="button">重置 · Reset</button>
+    <button class="tool" id="export" type="button">导出事件 JSON · Export</button>
+  </div>
+  <p id="export-status" aria-live="polite"></p>
+
+  <section class="evidence">
+    <details id="event-details">
+      <summary>事件日志 · Event log (测试时保持折叠 / keep collapsed during targeting)</summary>
+      <p>记录 click、contextmenu、pointerenter 的时间、目标和 isTrusted。isTrusted 表示浏览器生成的事件，不区分真实手势、普通鼠标或系统注入。最多保留最近 2,000 条，显示最近 80 条；点击导出时才生成下载文件。无服务器、网络请求或自动保存。</p>
+      <pre id="event-log">No events yet.</pre>
+    </details>
+  </section>
+</main>
+<script>
+(() => {
+  'use strict';
+  const tabs = Array.from(document.querySelectorAll('.target'));
+  const byId = id => document.getElementById(id);
+  const MAX_EVENTS = 2000;
+  let sessionStartedAt, startTime, events, totalEvents, leftCount, rightCount, hovered, clicked, selected;
+
+  function renderLog() {
+    if (byId('event-details').open) {
+      byId('event-log').textContent = events.length
+        ? events.slice(-80).map(event => JSON.stringify(event)).join('\n')
+        : 'No events yet.';
+    }
+  }
+  function render() {
+    byId('left-count').textContent = String(leftCount);
+    byId('right-count').textContent = String(rightCount);
+    byId('last-hover').textContent = hovered || '—';
+    byId('last-click').textContent = clicked || '—';
+    byId('selection').textContent = selected
+      ? `已选中目标 ${selected} · Tab ${selected} selected`
+      : '尚未点击 · No tab selected';
+    tabs.forEach(tab => tab.setAttribute('aria-selected', String(tab.dataset.number === selected)));
+    renderLog();
+  }
+  function record(event, target) {
+    totalEvents += 1;
+    events.push({
+      sequence: totalEvents,
+      timestamp: new Date().toISOString(),
+      elapsed_ms: Math.round(performance.now() - startTime),
+      type: event.type,
+      target_id: target.id,
+      target_number: Number(target.dataset.number),
+      target_label: target.textContent.trim(),
+      isTrusted: event.isTrusted,
+      button: event.button,
+      client_x: event.clientX,
+      client_y: event.clientY,
+      pointer_type: event.pointerType || null
+    });
+    if (events.length > MAX_EVENTS) events.shift();
+  }
+  function reset() {
+    sessionStartedAt = new Date().toISOString();
+    startTime = performance.now();
+    events = [];
+    totalEvents = leftCount = rightCount = 0;
+    hovered = clicked = selected = null;
+    tabs.forEach((tab, index) => { tab.tabIndex = index === 0 ? 0 : -1; });
+    byId('export-status').textContent = '';
+    render();
+  }
+
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('pointerenter', event => {
+      hovered = tab.dataset.number;
+      record(event, tab);
+      render();
+    });
+    tab.addEventListener('click', event => {
+      leftCount += 1;
+      clicked = selected = tab.dataset.number;
+      tabs.forEach(item => { item.tabIndex = item === tab ? 0 : -1; });
+      record(event, tab);
+      render();
+    });
+    tab.addEventListener('contextmenu', event => {
+      event.preventDefault();
+      rightCount += 1;
+      clicked = tab.dataset.number;
+      record(event, tab);
+      render();
+    });
+    tab.addEventListener('keydown', event => {
+      let next;
+      if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+      else if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
+      else if (event.key === 'Home') next = 0;
+      else if (event.key === 'End') next = tabs.length - 1;
+      else return;
+      event.preventDefault();
+      tabs.forEach((item, position) => { item.tabIndex = position === next ? 0 : -1; });
+      tabs[next].focus();
+    });
+  });
+  byId('event-details').addEventListener('toggle', renderLog);
+  byId('reset').addEventListener('click', reset);
+  byId('export').addEventListener('click', event => {
+    // Export is an explicit user operation, never a background side effect.
+    if (!event.isTrusted) return;
+    const report = {
+      format: 'local-control-target-board-v1',
+      session_started_at: sessionStartedAt,
+      exported_at: new Date().toISOString(),
+      note: 'Browser event evidence does not identify whether a gesture, ordinary mouse, keyboard, or OS injection produced it.',
+      left_clicks: leftCount,
+      right_clicks: rightCount,
+      last_hovered_target: hovered,
+      last_clicked_target: clicked,
+      selected_target: selected,
+      total_events: totalEvents,
+      retained_events: events.length,
+      dropped_events: totalEvents - events.length,
+      events
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], {type: 'application/json'}));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `local-control-events-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    byId('export-status').textContent = '已生成下载 · Event JSON download requested.';
+  });
+  reset();
+})();
+</script>
+</body>
+</html>

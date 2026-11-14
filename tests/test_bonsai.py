@@ -49,7 +49,7 @@ class TestBonsaiClient(unittest.TestCase):
             if req.method == "GET":
                 return Response({"data": [{"id": "bonsai-local"}]}, req.full_url)
             return Response({"choices": [{"finish_reason": "stop", "message": {
-                "content": '{"target_id":"codex","reason":"matching label"}'}}]}, req.full_url)
+                "content": '{"target_id":"0","reason":"matching label"}'}}]}, req.full_url)
         with patch.object(client._opener, "open", side_effect=request):
             self.assertTrue(client.check_model())
             self.assertEqual(client.select_target("打开Codex", [{"id":"codex","label":"Codex","x":45}]), SelectedTarget("codex", "matching label"))
@@ -57,12 +57,12 @@ class TestBonsaiClient(unittest.TestCase):
         self.assertEqual(captured[0].full_url, "http://127.0.0.1:1234/v1/models")
         user_data = json.loads(payload["messages"][1]["content"])
         self.assertEqual(user_data["transcript"], "打开Codex")
-        self.assertEqual(user_data["candidates"], [{"id":"codex","label":"Codex"}])
+        self.assertEqual(user_data["candidates"], [{"id":"0","label":"Codex"}])
         self.assertFalse(payload["stream"])
         self.assertNotIn("tools", payload)
         self.assertNotIn("x", payload)
 
-    def test_ollama_schema_and_negated_text_preserved(self):
+    def test_ollama_schema_and_spoken_text_preserved(self):
         client = BonsaiClient("http://localhost:11434/api", "bonsai:8b", api="ollama")
         requests = []
         def request(req, timeout):
@@ -72,10 +72,10 @@ class TestBonsaiClient(unittest.TestCase):
             return Response({"done": True, "message": {"content": '{"target_id":null}'}}, req.full_url)
         with patch.object(client._opener, "open", side_effect=request):
             client.check_model()
-            self.assertEqual(client.select_target("不要打开Codex", [{"id":"codex","label":"Codex"}]), SelectedTarget(None))
+            self.assertEqual(client.select_target("打开Codex", [{"id":"codex","label":"Codex"}]), SelectedTarget(None))
         payload = json.loads(requests[1].data)
         self.assertEqual(requests[0].full_url, "http://127.0.0.1:11434/api/tags")
-        self.assertEqual(json.loads(payload["messages"][1]["content"])["transcript"], "不要打开Codex")
+        self.assertEqual(json.loads(payload["messages"][1]["content"])["transcript"], "打开Codex")
         self.assertIn("negated request", payload["messages"][0]["content"])
         self.assertFalse(payload["format"]["additionalProperties"])
 

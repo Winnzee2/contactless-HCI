@@ -54,6 +54,29 @@ struct PinchLatch {
     }
 }
 
+struct TargetLock {
+    private var target: CGPoint?
+    private var anchor: CGPoint?
+    private var protectedUntil = -Double.infinity
+
+    mutating func hold(_ point: CGPoint, anchor: CGPoint, time: Double) {
+        target = point
+        self.anchor = anchor
+        protectedUntil = time + 3
+    }
+    mutating func clear() {
+        target = nil
+        anchor = nil
+        protectedUntil = -Double.infinity
+    }
+    mutating func resolve(hand: CGPoint, time: Double) -> CGPoint? {
+        // Allow time to form a click gesture without the index finger pulling
+        // the pointer away from the voice-selected target.
+        if time >= protectedUntil, let anchor = anchor, distance(hand, anchor) > 0.07 { clear() }
+        return target
+    }
+}
+
 struct VoiceAction {
     let action: String
     let point: CGPoint?
@@ -312,8 +335,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     var leftPinch = PinchLatch()
     var rightPinch = PinchLatch()
     var lastRawPoint: CGPoint?
-    var lockedTarget: CGPoint?
-    var lockAnchor: CGPoint?
+    var targetLock = TargetLock()
     var seenIDs: [String] = []
     var localMonitor: Any?
     var globalMonitor: Any?
@@ -484,7 +506,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
         armed = value
         leftPinch.reset(); rightPinch.reset()
-        lockedTarget = nil; lockAnchor = nil
+        targetLock.clear()
         mic.setArmed(value && tracked)
         stateLabel.stringValue = value ? "ENABLED · Index finger moves pointer · Escape pauses" : "PAUSED · Pointer and speech actions are disabled"
         toggleButton.title = value ? "Pause pointer" : "Enable pointer"
@@ -541,9 +563,8 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if regainedHand && armed { mic.setArmed(true) }
         preview.videoSize = videoSize; preview.rawPoint = raw; preview.joints = joints
         lastRawPoint = raw
-        if let anchor = lockAnchor, distance(raw, anchor) > 0.07 { lockedTarget = nil; lockAnchor = nil }
         let target = screenPoint(raw, bounds: screen)
-        if let locked = lockedTarget { pointer = locked }
+        if let locked = targetLock.resolve(hand: raw, time: time) { pointer = locked }
         else if let old = pointer { pointer = CGPoint(x: old.x + 0.28 * (target.x - old.x), y: old.y + 0.28 * (target.y - old.y)) }
         else { pointer = target }
         guard let point = pointer else { return }
@@ -564,7 +585,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         preview.rawPoint = nil; preview.joints = [:]
         if tracked { mic.setArmed(false) }
         leftPinch.reset(); rightPinch.reset()
-        lockedTarget = nil; lockAnchor = nil; lastRawPoint = nil
+        targetLock.clear(); lastRawPoint = nil
         pointer = nil
         if tracked {
             emit(["type": "pointer", "tracked": false, "x": 0, "y": 0])
@@ -586,7 +607,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
         lastActionTime = now()
         emit(["type": "action", "action": action, "source": "gesture", "x": point.x, "y": point.y])
-        lockedTarget = nil; lockAnchor = nil
+        targetLock.clear()
     }
     func readInput() {
         DispatchQueue.global(qos: .utility).async {
@@ -616,8 +637,8 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if seenIDs.count > 128 { seenIDs.removeFirst() }
         if instruction.action == "none" { return }
         guard let point = instruction.point else { return }
-        guard armed, tracked, now() - lastHandTime <= 0.4, AXIsProcessTrusted() else { return }
-        lockedTarget = point; lockAnchor = lastRawPoint; pointer = point
+        guard armed, tracked, now() - lastHandTime <= 0.4, AXIsProcessTrusted(), let anchor = lastRawPoint else { return }
+        targetLock.hold(point, anchor: anchor, time: now()); pointer = point
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
         emit(["type": "pointer", "x": point.x, "y": point.y, "tracked": true])
         emit(["type": "action", "action": "move_to", "source": "voice", "x": point.x, "y": point.y, "request_id": instruction.requestID])
@@ -716,6 +737,20 @@ func selfTest() -> Bool {
     check(!pinch.update(ratio: 0.1, time: 4), "held pinch does not repeat")
     pinch.reset()
     check(!pinch.update(ratio: 0.1, time: 5), "hand loss requires release")
+    var targetLock = TargetLock()
+    let voiceTarget = CGPoint(x: 400, y: 200), handAnchor = CGPoint(x: 0.5, y: 0.5)
+    let movedHand = CGPoint(x: 0.7, y: 0.5)
+    targetLock.hold(voiceTarget, anchor: handAnchor, time: 10)
+    check(targetLock.resolve(hand: movedHand, time: 12.999) == voiceTarget, "voice target ignores finger movement for three seconds")
+    check(targetLock.resolve(hand: handAnchor, time: 13) == voiceTarget, "stable hand keeps target after protection expires")
+    check(targetLock.resolve(hand: movedHand, time: 13.001) == nil, "deliberate movement releases target after three seconds")
+    targetLock.hold(voiceTarget, anchor: handAnchor, time: 20)
+    targetLock.clear()
+    check(targetLock.resolve(hand: handAnchor, time: 20.1) == nil, "click pause or hand loss can clear a protected target immediately")
+    targetLock.hold(voiceTarget, anchor: handAnchor, time: 30)
+    let nextTarget = CGPoint(x: 600, y: 300)
+    targetLock.hold(nextTarget, anchor: handAnchor, time: 32)
+    check(targetLock.resolve(hand: movedHand, time: 34.999) == nextTarget, "new voice target restarts three-second protection")
     var json: [String: Any] = ["type": "voice_action", "request_id": "abc", "action": "move_to", "x": 20, "y": 20]
     check(VoiceAction(json, bounds: bounds) != nil, "valid move")
     json["x"] = -1
