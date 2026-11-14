@@ -7,7 +7,6 @@ audio duration, pipeline latency, and real-time speed factors.
 
 from pathlib import Path
 import sys
-import time
 
 # Ensure src is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))

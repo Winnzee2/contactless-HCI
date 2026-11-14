@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Example 01: Offline File Transcription with Argmax WhisperKit.
-Demonstrates loading the local CoreML model and transcribing an audio file in ~50ms.
+Loads the local CoreML model and returns transcript text and timing metadata.
 """
 
 from pathlib import Path

@@ -6,7 +6,7 @@ Runs completely offline on Apple Silicon (CPU + Apple Neural Engine / GPU).
 from dataclasses import dataclass, field
 import json
 import logging
-import os
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from .audio_utils import get_audio_info, pad_audio_with_silence, save_pcm_to_wav
 from .config import STTConfig
+from .runtime import offline_command, offline_environment
 
 logger = logging.getLogger("stt.engine")
 
@@ -120,41 +121,36 @@ class WhisperKitEngine:
             TranscriptionResult containing transcribed text and metadata.
         """
         audio_path = Path(audio_path).resolve()
-        if not audio_path.exists():
+        self._validate_environment()
+        command = offline_command(self.config)
+        if not audio_path.is_file():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-        # Check duration and apply padding if necessary for short contactless commands
+        # Check duration and apply padding if necessary for short recordings.
         actual_input_path = audio_path
         cleanup_padded = False
+        temp_padded = None
+        duration = 0.0
         try:
             info = get_audio_info(audio_path)
             duration = info.get("duration", 0.0)
             if auto_pad_short_audio and 0.0 < duration < 1.5:
-                # Pad short commands (e.g., 'click', 'zoom in', 'scroll')
+                # Add context around brief utterances.
                 temp_padded = tempfile.NamedTemporaryFile(suffix="_padded.wav", delete=False)
                 temp_padded.close()
                 actual_input_path = pad_audio_with_silence(audio_path, Path(temp_padded.name))
                 cleanup_padded = True
         except Exception as e:
             logger.debug(f"Could not inspect audio duration, using original file: {e}")
-            duration = 0.0
+            if temp_padded is not None:
+                Path(temp_padded.name).unlink(missing_ok=True)
 
-        # Create temporary directory for report if detailed is requested
+        # Always use the structured report; stdout may contain diagnostic logs.
         temp_dir = tempfile.mkdtemp(prefix="whisperkit_report_")
         report_file = Path(temp_dir) / f"{actual_input_path.stem}.json"
 
-        cmd = [
-            self.config.cli_binary,
-            "transcribe",
-            "--model-path", str(self.config.model_path),
-            "--download-tokenizer-path", str(self.config.tokenizer_path),
+        cmd = command + [
             "--audio-path", str(actual_input_path),
-            "--audio-encoder-compute-units", self.config.audio_encoder_compute_units,
-            "--text-decoder-compute-units", self.config.text_decoder_compute_units,
-            "--temperature", str(self.config.temperature),
-            "--task", self.config.task,
-            "--language", self.config.language,
-            "--chunking-strategy", self.config.chunking_strategy,
             "--report",
             "--report-path", temp_dir,
         ]
@@ -166,6 +162,8 @@ class WhisperKitEngine:
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=self.config.transcription_timeout,
+                env=offline_environment(),
             )
             wall_time = time.perf_counter() - start_time
 
@@ -179,13 +177,15 @@ class WhisperKitEngine:
             # Parse report if created
             raw_report = None
             segments: List[TranscriptionSegment] = []
-            final_text = res.stdout.strip()
+            final_text = ""
             pipeline_time = wall_time
 
             if report_file.exists():
                 try:
                     with open(report_file, "r", encoding="utf-8") as f:
                         raw_report = json.load(f)
+                    if not isinstance(raw_report.get("text"), str):
+                        raise ValueError("Missing transcript text")
                     final_text = raw_report.get("text", final_text).strip()
                     report_timings = raw_report.get("timings", {})
                     pipeline_time = report_timings.get("fullPipeline", wall_time)
@@ -208,7 +208,12 @@ class WhisperKitEngine:
                             )
                         )
                 except Exception as e:
-                    logger.warning(f"Failed to parse whisperkit report JSON: {e}")
+                    raise RuntimeError(f"Invalid WhisperKit transcription report: {e}") from e
+            else:
+                raise RuntimeError(
+                    "WhisperKit did not produce a transcription report. "
+                    f"Output: {res.stdout}\n{res.stderr}"
+                )
 
             # Clean final text of whisper tokens
             final_text = _clean_whisper_text(final_text)
@@ -223,23 +228,12 @@ class WhisperKitEngine:
                 raw_report=raw_report if detailed else None,
             )
 
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                f"WhisperKit timed out after {self.config.transcription_timeout:g} seconds."
+            ) from e
         finally:
-            # Cleanup temporary report files
-            if report_file.exists():
-                try:
-                    report_file.unlink()
-                except OSError:
-                    pass
-            srt_file = Path(temp_dir) / f"{actual_input_path.stem}.srt"
-            if srt_file.exists():
-                try:
-                    srt_file.unlink()
-                except OSError:
-                    pass
-            try:
-                os.rmdir(temp_dir)
-            except OSError:
-                pass
+            shutil.rmtree(temp_dir, ignore_errors=True)
             if cleanup_padded and actual_input_path.exists():
                 try:
                     actual_input_path.unlink()
@@ -255,8 +249,8 @@ class WhisperKitEngine:
         detailed: bool = False,
     ) -> TranscriptionResult:
         """
-        Transcribes audio data directly from a byte buffer (useful for streaming buffers
-        or gesture-triggered audio clips captured in memory).
+        Transcribes audio data directly from a byte buffer, such as a recording
+        provided by another local application. Returns text without acting on it.
         """
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
             temp_path = Path(tf.name)

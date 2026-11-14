@@ -1,7 +1,7 @@
 """
-Argmax WhisperKit Speech-to-Text Module for Contactless HCI.
-Provides fully offline on-device speech transcription, streaming microphone input,
-command parsing, and multimodal hand-gesture fusion on Apple Silicon.
+Offline Argmax WhisperKit speech-to-text on Apple Silicon.
+Provides file and microphone transcription as plain text, without interpreting
+speech as application commands or performing gesture actions.
 """
 
 from .audio_utils import (
@@ -11,22 +11,11 @@ from .audio_utils import (
     pad_audio_with_silence,
     save_pcm_to_wav,
 )
-from .commands import (
-    ContactlessAction,
-    ContactlessCommandParser,
-    ParsedCommand,
-)
 from .config import STTConfig
 from .engine import (
     TranscriptionResult,
     TranscriptionSegment,
     WhisperKitEngine,
-)
-from .fusion import (
-    FusedHCIAction,
-    GestureEvent,
-    GestureVoiceFusionController,
-    HandGesture,
 )
 from .stream import WhisperKitStreamer
 
@@ -35,14 +24,7 @@ __all__ = [
     "WhisperKitEngine",
     "TranscriptionResult",
     "TranscriptionSegment",
-    "ContactlessAction",
-    "ContactlessCommandParser",
-    "ParsedCommand",
     "WhisperKitStreamer",
-    "GestureVoiceFusionController",
-    "HandGesture",
-    "GestureEvent",
-    "FusedHCIAction",
     "get_audio_info",
     "pad_audio_with_silence",
     "convert_to_16k_mono_wav",

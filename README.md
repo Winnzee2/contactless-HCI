@@ -1,235 +1,140 @@
-# Local Contactless HCI: Speech-to-Text with Argmax WhisperKit
+# Offline Speech-to-Text with Argmax WhisperKit
 
-> **High-performance, 100% offline speech recognition designed for contactless human-computer interaction, powered exclusively by Argmax CoreML models on Apple Silicon.**
+This project converts audio into text locally on an Apple Silicon Mac using Argmax WhisperKit. It supports audio files, audio byte buffers, and live microphone transcription.
 
-[![Platform](https://img.shields.io/badge/Platform-macOS%20Apple%20Silicon-black?logo=apple)](https://github.com/argmaxinc/WhisperKit)
-[![Offline](https://img.shields.io/badge/Offline-No%20Wi--Fi%20Required-success)](#offline-operation)
-[![Latency](https://img.shields.io/badge/Latency-~45ms%20per%20command-blue)](#performance-benchmarks)
-[![Engine](https://img.shields.io/badge/Model-Argmax%20WhisperKit-orange)](https://github.com/argmaxinc/WhisperKit)
+**Speech is text only.** Saying “scroll down,” “select this,” or “open browser” produces those words as a transcript. The speech module does not interpret them as commands, recognize gestures, or perform application actions. A separate hand-gesture program can own those functions.
 
----
+After one-time setup, inference uses local CoreML models and tokenizers. File and microphone inference run with network access denied by a macOS sandbox policy, so they work without Wi-Fi.
 
-## Overview
+## Setup
 
-This repository provides the **Speech-to-Text (STT)** subsystem for a contactless human-computer interaction (HCI) interface. Combining computer vision (hand gesture tracking) with natural voice commands enables touchless control of screens, menus, presentations, and applications.
+Requires Apple Silicon, macOS 14+, Python 3.9+, and Homebrew. While online:
 
-To ensure **absolute privacy, zero cloud dependency, and instantaneous response times (<50 ms)**, this module runs **exclusively using Argmax Inc.'s WhisperKit CoreML models** directly on the Apple Neural Engine (ANE) without requiring an internet or Wi-Fi connection.
-
----
-
-## Key Features
-
-* **100% Offline & Private**: Zero external network calls. Runs without Wi-Fi once model weights are stored locally.
-* **Argmax WhisperKit CoreML Optimization**: Compiled specifically for Apple Silicon (M1/M2/M3/M4) leveraging the Apple Neural Engine (`cpuAndNeuralEngine`).
-* **Ultra-Low Latency (~45 ms)**: Achieves **~22–27x real-time speedup**, transcribing short interactive commands in a fraction of a second.
-* **Multimodal Gesture-Voice Fusion**: Built-in `GestureVoiceFusionController` coordinates spatial hand pointing (where to act) with spoken intents (what to do).
-* **Gesture-Gated Voice (Push-to-Talk)**: Eliminates false-positive microphone triggers by using gestures (e.g. `PINCH` or `FIST`) to open and close voice listening gates.
-* **Contactless Command Parser**: Fuzzy intent matcher for common contactless actions (`SCROLL_UP`, `SCROLL_DOWN`, `ZOOM_IN`, `SELECT`, `CONFIRM`, `INPUT_TEXT`, `SEARCH`).
-* **Automatic Silence Padding**: Automatically buffers brief voice commands (<1.5s) to guarantee maximum Whisper recognition accuracy on single-word commands.
-
----
-
-## Performance Benchmarks
-
-Measured on Apple Silicon (`openai_whisper-tiny.en` on Apple Neural Engine):
-
-| Audio Command | Audio Length | Inference Latency | Speed Factor | Transcribed Text |
-| :--- | :--- | :--- | :--- | :--- |
-| `select_this_item.wav` | 1.26 s | **46.0 ms** | **27.3x** | *"Select this item."* |
-| `confirm_and_proceed.wav`| 1.23 s | **47.8 ms** | **25.8x** | *"Confirm and proceed."* |
-| `speech_command.wav` | 1.20 s | **48.1 ms** | **25.0x** | *"Scroll down please."* |
-| `open_browser.wav` | 0.91 s | **44.2 ms** | **20.5x** | *"Open Browser."* |
-| `zoom_in.wav` | 0.59 s | **43.0 ms** | **13.6x** | *"Zoom in."* |
-
----
-
-## Project Structure
-
-```
-local-AI-argmax/
-├── assets/
-│   └── samples/                  # Curated audio test samples
-│       ├── confirm_and_proceed.wav
-│       ├── open_browser.wav
-│       ├── select_this_item.wav
-│       ├── speech_command.wav
-│       └── zoom_in.wav
-├── docs/
-│   ├── ARCHITECTURE.md           # Multimodal HCI interaction architecture
-│   └── OFFLINE_SETUP.md          # Guide on offline verification & compute units
-├── examples/
-│   ├── 01_transcribe_file.py     # Minimal 5-line transcription example
-│   ├── 02_microphone_stream.py   # Real-time microphone listener
-│   ├── 03_gesture_voice_fusion.py# Simulated multimodal gesture + voice event loop
-│   └── 04_benchmark_offline.py   # Latency and throughput benchmark
-├── models/                       # Local CoreML models (Argmax WhisperKit)
-│   ├── argmaxinc/
-│   │   └── whisperkit-coreml/
-│   │       ├── openai_whisper-tiny.en/   # Default fast model (~146 MB)
-│   │       └── openai_whisper-base.en/   # Higher accuracy model (~250 MB)
-│   └── openai/
-│       ├── whisper-tiny.en/              # Tokenizer & vocab
-│       └── whisper-base.en/
-├── scripts/
-│   ├── setup_models.sh           # One-time model setup script
-│   └── test_offline.sh           # End-to-end offline verification script
-├── src/
-│   └── stt/
-│       ├── __init__.py           # Package exports
-│       ├── audio_utils.py        # 16kHz conversion, padding & PCM tools
-│       ├── commands.py           # Contactless HCI action parser
-│       ├── config.py             # Model paths & Apple Silicon compute config
-│       ├── engine.py             # WhisperKit CoreML inference engine
-│       ├── fusion.py             # Gesture + Voice multimodal controller
-│       └── stream.py             # Live microphone streaming listener
-├── tests/                        # Automated unit & integration tests
-│   ├── test_commands.py
-│   ├── test_engine.py
-│   └── test_fusion.py
-├── cli.py                        # Central command-line tool
-├── requirements.txt              # Standard library friendly dependencies
-└── README.md
-```
-
----
-
-## Quickstart
-
-### 1. Prerequisites (Homebrew)
-Install Argmax's WhisperKit CLI:
 ```bash
 brew install whisperkit-cli
+bash scripts/setup_models.sh
 ```
 
-### 2. Verify Offline Readiness
-Run the environment diagnostic check:
+The default model is `tiny.en` for English speech. To prepare the larger English model, use `bash scripts/setup_models.sh --model base.en`; use `--model all` to prepare both. Setup verifies a sample transcription with networking denied before reporting success.
+
 ```bash
-./cli.py check
+python3 cli.py check
 ```
-If you see `STATUS: [✓] 100% OFFLINE READY`, you can disconnect Wi-Fi anytime.
 
-### 3. Transcribe an Audio File Offline
+This checks required local assets and exits nonzero if anything is missing. See [the offline setup guide](docs/OFFLINE_SETUP.md) for storage layout and troubleshooting.
+
+## Use
+
+Transcribe a local recording:
+
 ```bash
-./cli.py transcribe assets/samples/select_this_item.wav
-```
-Output:
-```
-==================================================
- TRANSCRIPTION RESULT (openai_whisper-tiny.en)
-==================================================
-Text: "Select this item."
-
-Audio Duration : 1.26 s
-Inference Time : 0.046 s
-Speed Factor   : 27.3x real-time
-==================================================
+python3 cli.py transcribe assets/samples/select_this_item.wav
+python3 cli.py transcribe recording.m4a --model base.en --json
 ```
 
-### 4. Interactive Command Parser Test
-Test how natural phrases map to touchless actions:
+Transcribe microphone audio:
+
 ```bash
-./cli.py commands
+python3 cli.py stream
 ```
 
-### 5. Multimodal Gesture + Voice Demo
-See spatial pointing coordinates fuse with speech intents in real time:
-```bash
-./cli.py demo
-```
+Allow microphone access for the terminal or hosting app when macOS prompts. `[Listening]` lines are provisional and may change; `[Speech]` lines are newly confirmed transcript segments. Confirmation can lag behind speech. Ctrl+C stops capture and discards unconfirmed text.
 
-### 6. Live Microphone Streaming
-Transcribe your voice continuously from your Mac microphone:
-```bash
-./cli.py stream
-```
+`python3 main.py` displays the same CLI help. Its available subcommands are `check`, `transcribe`, and `stream`.
 
----
+## Python API
 
-## Python API Usage
+Run your script with `PYTHONPATH=src python3 your_script.py` from the project root, or use the runnable examples below.
 
-### Transcribing an Audio File
 ```python
 from stt import STTConfig, WhisperKitEngine
 
-# Configure for local Apple Neural Engine execution
-config = STTConfig(model_name="tiny.en")
-engine = WhisperKitEngine(config)
-
-# Transcribe
-result = engine.transcribe("path/to/voice_command.wav")
-print(f"Recognized: {result.text}")
-print(f"Latency: {result.pipeline_duration * 1000:.1f} ms")
+engine = WhisperKitEngine(STTConfig(model_name="tiny.en"))
+result = engine.transcribe("recording.wav")
+print(result.text)
 ```
 
-### Parsing Spoken Commands for Touchless Control
-```python
-from stt import ContactlessCommandParser
-
-parser = ContactlessCommandParser()
-
-# Natural speech with filler words
-cmd = parser.parse("could you please scroll down")
-print(cmd.action)  # ContactlessAction.SCROLL_DOWN
-
-# Parameterized dictation
-cmd = parser.parse("type contactless interaction")
-print(cmd.action)     # ContactlessAction.INPUT_TEXT
-print(cmd.parameter)  # "contactless interaction"
-```
-
----
-
-## Integrating with Hand Gesture Detection (OpenCV / MediaPipe)
-
-In a contactless HCI application, your vision pipeline detects hand landmarks while `GestureVoiceFusionController` unifies them:
+For audio already captured by another local application:
 
 ```python
-from stt import (
-    ContactlessAction,
-    ContactlessCommandParser,
-    GestureEvent,
-    GestureVoiceFusionController,
-    HandGesture,
-)
-
-# 1. Initialize fusion controller
-def on_fused_action(action):
-    print(f"DISPATCH UI EVENT: {action.action.value} at coords {action.coordinates}")
-
-fusion = GestureVoiceFusionController(on_action=on_fused_action)
-
-# 2. In your OpenCV / MediaPipe hand tracking loop:
-# When index finger pointing is detected:
-fusion.handle_gesture(
-    GestureEvent(
-        gesture=HandGesture.POINT,
-        x=normalized_x,  # 0.0 to 1.0 screen coordinate
-        y=normalized_y,
-    )
-)
-
-# 3. When WhisperKit detects speech:
-# "Select this" automatically fuses with the pointing coordinates!
-fusion.handle_voice_transcript("select this please")
+# pcm_bytes contains mono 16-bit PCM at 16 kHz.
+result = engine.transcribe_bytes(pcm_bytes, is_raw_pcm=True, sample_rate=16000)
+transcript = result.text
 ```
 
----
+For continuous microphone input, poll confirmed text from the stream's queue:
 
-## Testing
+```python
+from stt import STTConfig, WhisperKitStreamer
 
-Run the full unit and integration test suite:
+try:
+    with WhisperKitStreamer(STTConfig(model_name="tiny.en")) as stream:
+        while stream.is_running():
+            text = stream.get_text(timeout=0.1)
+            if text is not None:
+                print(text)
+        stream.raise_if_failed()
+        # Drain any confirmed text queued immediately before the stream ended.
+        while (text := stream.get_text(timeout=0)) is not None:
+            print(text)
+except KeyboardInterrupt:
+    pass
+```
+
+Alternatively, pass `on_text=callback` for newly confirmed text and `on_partial_text=callback` for provisional display text. Callbacks run on the stream's background reader thread; keep them short and use a thread-safe queue to hand text to a UI/main thread. Choose either queue polling or callbacks for consuming confirmed text so your application does not display it twice.
+
+## Connect to a separate gesture application
+
+The integration boundary is a string. Your gesture application can receive transcript text for display or text entry while retaining ownership of gesture recognition and application behavior. No gesture types, action dispatchers, or voice command mappings are provided by this package.
+
+See [examples/03_text_integration.py](examples/03_text_integration.py) for a callback-to-queue integration. Both applications can communicate entirely on-device; see [the architecture notes](docs/ARCHITECTURE.md).
+
+## Examples
+
+```bash
+python3 examples/01_transcribe_file.py
+python3 examples/02_microphone_stream.py
+python3 examples/03_text_integration.py
+python3 examples/04_benchmark_offline.py
+```
+
+The sample recordings contain short phrases, including words that sound like commands. They are transcription fixtures only. Recognition accuracy varies with audio and model choice; brief phrases can be misheard. Benchmark timings describe inference and exclude process startup and model loading.
+
+## Project layout
+
+```text
+src/stt/
+  config.py       Local model paths, compute options, and asset checks
+  engine.py       Audio file/byte-buffer transcription and result metadata
+  stream.py       Microphone transcription, text callbacks, and text queue
+  runtime.py      Argmax invocation with network access denied
+  audio_utils.py  Audio inspection, conversion, padding, and PCM helpers
+scripts/
+  setup_models.sh / setup_models.py  One-time asset provisioning
+  test_offline.sh                   Offline transcription verification
+models/                            Local assets; excluded from Git
+assets/samples/                    Audio fixtures
+examples/                          Runnable speech-to-text examples
+```
+
+## Tests
+
+Unit tests require no microphone or model downloads:
 
 ```bash
 python3 -m unittest discover tests
 ```
 
-Or run the offline verification script:
+With both models prepared, run native CoreML tests and the network-denial check:
+
+```bash
+STT_INTEGRATION=1 python3 -m unittest discover tests -v
+```
+
+For an offline smoke test using the default model:
+
 ```bash
 bash scripts/test_offline.sh
 ```
 
----
-
-## License
-
-MIT License. WhisperKit models and tools are developed by [Argmax Inc.](https://github.com/argmaxinc/WhisperKit).
+WhisperKit is developed by [Argmax](https://github.com/argmaxinc/argmax-oss-swift).

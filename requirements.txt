@@ -1,7 +1,4 @@
-# Core local Speech-to-Text with Argmax WhisperKit
-# Requires whisperkit-cli installed via Homebrew: `brew install whisperkit-cli`
-# All core STT functions run using standard library and whisperkit-cli.
-
-# Optional dependencies for direct microphone capture and audio matrix operations:
-# numpy>=1.22.0
-# sounddevice>=0.4.6
+# Offline speech-to-text uses the Python standard library.
+# Install the native Argmax CLI separately: brew install whisperkit-cli
+# Prepare local models while online: bash scripts/setup_models.sh
+# No Python packages are required for file or microphone transcription.

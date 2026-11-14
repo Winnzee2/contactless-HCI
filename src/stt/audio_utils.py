@@ -1,7 +1,7 @@
 """
 Audio utility functions for speech-to-text processing.
 Handles audio inspection, format normalization (16kHz mono WAV),
-silence padding for short voice commands, and PCM conversions.
+silence padding for short recordings, and PCM conversions.
 """
 
 import math
@@ -56,9 +56,7 @@ def pad_audio_with_silence(
 ) -> Path:
     """
     Adds silence padding to short voice clips (< 1.5s).
-    Whisper models and VAD segmenters achieve significantly higher accuracy
-    on brief contactless commands (e.g., 'click', 'zoom in') when lead/tail
-    silence is present.
+    Leading and trailing silence can help Whisper handle brief utterances.
     """
     input_path = Path(input_path)
     if output_path is None:

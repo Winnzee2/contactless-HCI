@@ -5,6 +5,7 @@ for fully offline, local inference on Apple Silicon.
 """
 
 from dataclasses import dataclass, field
+import json
 import os
 from pathlib import Path
 import shutil
@@ -42,10 +43,13 @@ class STTConfig:
 
     # Path to whisperkit-cli binary
     cli_binary: Optional[str] = None
+    transcription_timeout: float = 120.0
 
     def __post_init__(self):
+        self.base_dir = Path(self.base_dir).expanduser().resolve()
         if self.models_dir is None:
             self.models_dir = self.base_dir / "models"
+        self.models_dir = Path(self.models_dir).expanduser().resolve()
 
         # Resolve CLI binary
         if self.cli_binary is None:
@@ -56,22 +60,28 @@ class STTConfig:
                 if brew_path.exists():
                     detected = str(brew_path)
             self.cli_binary = detected
+        else:
+            self.cli_binary = shutil.which(self.cli_binary) or self.cli_binary
 
         # Normalize model names
-        if self.model_name in ("tiny", "tiny.en", "whisper-tiny.en"):
+        if self.model_name in ("tiny", "tiny.en", "whisper-tiny.en", "openai_whisper-tiny.en"):
             self.model_name = "openai_whisper-tiny.en"
             self.tokenizer_name = "whisper-tiny.en"
-        elif self.model_name in ("base", "base.en", "whisper-base.en"):
+        elif self.model_name in ("base", "base.en", "whisper-base.en", "openai_whisper-base.en"):
             self.model_name = "openai_whisper-base.en"
             self.tokenizer_name = "whisper-base.en"
 
         # Resolve model path
         if self.model_path is None:
             self.model_path = self._resolve_model_path()
+        self.model_path = Path(self.model_path).expanduser().resolve()
 
         # Resolve tokenizer path
         if self.tokenizer_path is None:
             self.tokenizer_path = self._resolve_tokenizer_path()
+        self.tokenizer_path = Path(self.tokenizer_path).expanduser().resolve()
+        if self.transcription_timeout <= 0:
+            raise ValueError("transcription_timeout must be positive")
 
     def _resolve_model_path(self) -> Path:
         """Find local model directory for fully offline execution."""
@@ -109,19 +119,31 @@ class STTConfig:
         """Returns True if the required CoreML model files exist locally."""
         if not self.model_path or not self.model_path.exists():
             return False
-        encoder = self.model_path / "AudioEncoder.mlmodelc"
-        decoder = self.model_path / "TextDecoder.mlmodelc"
-        return encoder.exists() and decoder.exists()
+        for name in ("AudioEncoder", "TextDecoder", "MelSpectrogram"):
+            folder = self.model_path / f"{name}.mlmodelc"
+            for asset in ("model.mil", "coremldata.bin", "weights/weight.bin"):
+                path = folder / asset
+                if not path.is_file() or path.stat().st_size == 0:
+                    return False
+        return True
 
     def is_tokenizer_available(self) -> bool:
         """Returns True if tokenizer files exist locally."""
         if not self.tokenizer_path or not self.tokenizer_path.exists():
             return False
-        return (self.tokenizer_path / "tokenizer.json").exists()
+        for name in ("tokenizer.json", "tokenizer_config.json", "config.json"):
+            try:
+                with (self.tokenizer_path / name).open(encoding="utf-8") as handle:
+                    if not isinstance(json.load(handle), dict):
+                        return False
+            except (OSError, ValueError):
+                return False
+        return True
 
     def is_offline_ready(self) -> bool:
         """Returns True if all components are present to run 100% without Wi-Fi."""
-        return self.is_cli_available() and self.model_available() and self.is_tokenizer_available()
+        return (self.is_cli_available() and self.model_available() and self.is_tokenizer_available()
+                and Path("/usr/bin/sandbox-exec").is_file())
 
     # Alias for convenience
     def model_available(self) -> bool:

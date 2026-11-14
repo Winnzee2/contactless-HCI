@@ -1,99 +1,47 @@
-# Multimodal Contactless Human-Computer Interaction (HCI) Architecture
+# Speech-to-text architecture
 
-This document describes the system architecture for contactless human-computer interaction combining **Vision-Based Hand Gesture Recognition** and **On-Device Speech-to-Text via Argmax WhisperKit**.
+This package has one responsibility: convert audio to text with local Argmax WhisperKit inference. It does not parse spoken commands, classify gestures, combine gestures with speech, or invoke application actions.
 
----
+## Data flow
 
-## 1. High-Level Architecture
-
-```
-                   +---------------------------+
-                   |     Contactless User      |
-                   +-------------+-------------+
-                                 |
-            +--------------------+--------------------+
-            | (Physical Hand Motion)                  | (Acoustic Speech)
-            v                                         v
-   +-------------------+                     +-------------------+
-   |   Vision Sensor   |                     |    Microphone     |
-   | (Webcam / Camera) |                     |  (Built-in / USB) |
-   +---------+---------+                     +---------+---------+
-             |                                         |
-             v                                         v
-   +-------------------+                     +-------------------+
-   |  Gesture Detector |                     | WhisperKit Engine |
-   | (MediaPipe/OpenCV)|                     |  (Argmax CoreML)  |
-   |                   |                     |  Neural Engine    |
-   +---------+---------+                     +---------+---------+
-             |                                         |
-             | GestureEvent                            | Transcript
-             | (Pointing, Pinch, ThumbsUp)             | ("Select this", "Scroll down")
-             |                                         |
-             +--------------------+--------------------+
-                                  |
-                                  v
-                +-----------------------------------+
-                |   Multimodal Fusion Controller    |
-                |  (GestureVoiceFusionController)   |
-                +-----------------+-----------------+
-                                  |
-                                  | Fused HCI Action
-                                  v
-                +-----------------------------------+
-                | Contactless Application UI / OS   |
-                |  (Scroll, Click, Zoom, Dictate)   |
-                +-----------------------------------+
+```text
+Audio file or PCM bytes → WhisperKitEngine → TranscriptionResult.text
+Microphone             → WhisperKitStreamer → Confirmed/partial text
 ```
 
----
+`WhisperKitEngine` returns text, segments, and timing metadata. `WhisperKitStreamer` exposes confirmed strings through `on_text` and `get_text(timeout)`, plus provisional strings through `on_partial_text` for display. Words such as “select,” “scroll,” and “confirm” remain ordinary transcript content.
 
-## 2. The Core Interaction Challenges & Solutions
+## Components
 
-### A. The "Midas Touch" & False-Positive Problem
-In contactless systems, microphones that are always actively listening will inadvertently capture room chatter, background television, or casual comments.
+| Module | Responsibility |
+| --- | --- |
+| `stt.config` | Resolve local model/tokenizer paths and validate required assets |
+| `stt.runtime` | Build local Argmax invocations with networking denied |
+| `stt.engine` | Transcribe files or audio buffers and parse structured results |
+| `stt.stream` | Read microphone transcript snapshots and emit new text |
+| `stt.audio_utils` | Inspect, convert, pad, and write audio |
 
-* **Solution: Gesture-Gated Push-to-Talk (PTT)**
-  * The user performs a distinct hand gesture (e.g., `PINCH` or `FIST`) to open the voice window.
-  * Releasing the gesture (`OPEN_PALM` or hand removal) closes the window and immediately triggers offline transcription.
-  * This guarantees voice commands are only processed when the user explicitly intends to communicate.
+Model setup is explicit and separate from inference. Only `scripts/setup_models.py` downloads model assets. Missing runtime assets produce an error rather than an automatic download.
 
-### B. The Deictic "This / Here" Problem
-Spoken commands like *"Click this"* or *"Open that"* are semantically incomplete without spatial context. Conversely, hand pointing is spatially precise but lacks semantic granularity (is pointing meant to hover, select, copy, or delete?).
+## Integrating with a separate gesture program
 
-* **Solution: Spatiotemporal Fusion**
-  * When a voice command containing deictic words (*"this"*, *"here"*, *"select"*) is recognized, the `GestureVoiceFusionController` queries the most recent hand pointer coordinates $(x, y)$ registered within a 2-second time window.
-  * The resulting `FusedHCIAction` pairs the semantic intent (`SELECT`) with exact screen coordinates $(x, y)$.
+A host application can run the speech module alongside a gesture recognizer:
 
-### C. Offline Latency Requirements
-Contactless interactions feel clunky if UI responses take several seconds.
+```text
+Speech audio → This package → Plain transcript text → Host application's text display
+Hand motion  → Separate gesture program             → Host application's behavior
+```
 
-* **Solution: Argmax WhisperKit on Apple Silicon Neural Engine**
-  * By compiling Whisper directly to Apple CoreML `.mlmodelc` targeting the Apple Neural Engine (`cpuAndNeuralEngine`), inference executes in **~45 ms** for typical 1-2 second voice commands.
-  * This achieves a **~25x real-time speedup** with zero cloud latency and zero Wi-Fi dependencies.
+The host decides where text belongs. For example, a gesture can select a text field, and the host can place received transcript text into that field. That selection and insertion behavior belongs to the host; this package supplies text only.
 
----
+If both systems use Python, import `stt` in the host application. Use `get_text(timeout)` from its event loop, or have `on_text` put strings into a thread-safe queue consumed on the UI/main thread. `examples/03_text_integration.py` demonstrates the callback approach without performing any gesture or application action.
 
-## 3. Component Breakdown
+Callbacks run on the background stream-reader thread, so they should return quickly. Avoid manipulating a UI directly from a callback. Provisional text can be replaced as recognition improves; use confirmed text when appending to a document or transcript. Choose one confirmed-text delivery method per consumer to avoid duplicate display.
 
-| Module | Responsibility | Key Classes |
-| :--- | :--- | :--- |
-| `stt.engine` | CoreML inference execution using `whisperkit-cli` | `WhisperKitEngine`, `TranscriptionResult` |
-| `stt.config` | Manages local paths, compute units, offline checks | `STTConfig` |
-| `stt.commands` | Natural speech parser & contactless intent mapper | `ContactlessCommandParser`, `ContactlessAction` |
-| `stt.stream` | Real-time continuous microphone listener | `WhisperKitStreamer` |
-| `stt.fusion` | Multimodal bridge connecting vision & voice | `GestureVoiceFusionController`, `FusedHCIAction` |
-| `stt.audio_utils` | Audio format validation, silence padding & PCM tools | `pad_audio_with_silence`, `get_audio_info` |
+If the programs must remain separate processes or use different languages, the host can bridge transcript strings through local operating-system pipes. The bridge belongs in the Python/host layer, outside the Argmax inference subprocess. This requires no Wi-Fi or external server.
 
----
+## Offline boundary
 
-## 4. Multimodal Fusion Matrix
+Argmax runs with explicit local model and tokenizer paths under a macOS sandbox policy denying network access. Models, tokenizers, and the CLI must be prepared beforehand. To install on a machine that never connects to the internet, transfer the required installed runtime and compatible assets from a prepared machine.
 
-| Gesture Input | Voice Input | Fused Action Dispatched | Description |
-| :--- | :--- | :--- | :--- |
-| `POINT(x, y)` | *"Select this"* | `SELECT` at `(x, y)` | Spatial deictic selection |
-| `POINT(x, y)` | *"Zoom in here"* | `ZOOM_IN` at `(x, y)` | Focal magnification |
-| `PINCH` (held) | *"Scroll down"* | `SCROLL_DOWN` | Gesture-gated navigation |
-| `POINT(x, y)` | *"Type hello"* | `INPUT_TEXT("hello")` at `(x, y)` | Dictation directed into input box |
-| `THUMBS_UP` | *(None)* | `CONFIRM` | Pure gesture approval |
-| `OPEN_PALM` | *(None)* | `CANCEL` / Release | Pure gesture stop |
-| *(None)* | *"Go home"* | `GO_HOME` | Voice-only navigation |
+The gesture program must likewise have its models and dependencies locally available. Test the combined host application from a fresh launch with networking disabled. Local transcription cannot make an inherently online application feature work offline.

@@ -1,138 +1,168 @@
-"""
-Real-time streaming microphone listener for WhisperKit Argmax models.
-Captures live microphone audio using whisperkit-cli and streams
-recognized text and contactless commands in real time.
-"""
+"""Local microphone transcription using Argmax's streaming CLI."""
 
+from collections import deque
+import errno
 import logging
+import os
+import pty
 from queue import Empty, Queue
 import subprocess
 import threading
-import time
 from typing import Callable, Optional
 
-from .commands import ContactlessAction, ContactlessCommandParser, ParsedCommand
 from .config import STTConfig
+from .engine import WhisperKitEngine, _clean_whisper_text
+from .runtime import offline_command, offline_environment
 
 logger = logging.getLogger("stt.stream")
 
 
 class WhisperKitStreamer:
-    """
-    Continuous microphone listener powered by Argmax WhisperKit.
-    Streams live transcriptions and dispatches recognized contactless commands.
+    """Emit confirmed segments once; expose provisional text separately.
+
+    Argmax prints cumulative snapshots, not independent transcript lines.
+    Confirmed segments are delivered as plain strings through on_text and
+    get_text(). Provisional text may change and is available separately through
+    on_partial_text. Callbacks run on the background reader thread.
     """
 
     def __init__(
         self,
         config: Optional[STTConfig] = None,
-        parser: Optional[ContactlessCommandParser] = None,
         on_text: Optional[Callable[[str], None]] = None,
-        on_command: Optional[Callable[[ParsedCommand], None]] = None,
+        on_partial_text: Optional[Callable[[str], None]] = None,
     ):
         self.config = config or STTConfig()
-        self.parser = parser or ContactlessCommandParser()
         self.on_text = on_text
-        self.on_command = on_command
-
-        self._process: Optional[subprocess.Popen] = None
-        self._thread: Optional[threading.Thread] = None
+        self.on_partial_text = on_partial_text
+        self._process = None
+        self._thread = None
+        self._output = None
         self._stop_event = threading.Event()
-        self._event_queue: Queue[ParsedCommand] = Queue()
+        self._text_queue: Queue[str] = Queue()
+        self._diagnostics = deque(maxlen=20)
+        self._confirmed_count = 0
+        self._snapshot_index = 0
+        self._partial_segments = []
+        self._last_partial = ""
 
     def is_running(self) -> bool:
-        """Returns True if the streaming listener process is active."""
-        return self._process is not None and self._process.poll() is None
-
-    def start(self) -> None:
-        """Starts live microphone listening in a background thread."""
-        if self.is_running():
-            logger.warning("WhisperKitStreamer is already running.")
-            return
-
-        if not self.config.is_model_available():
-            raise FileNotFoundError(
-                f"Argmax model not found at {self.config.model_path}. "
-                "Run scripts/setup_models.sh before streaming."
-            )
-
-        cmd = [
-            self.config.cli_binary,
-            "transcribe",
-            "--model-path", str(self.config.model_path),
-            "--download-tokenizer-path", str(self.config.tokenizer_path),
-            "--stream",
-            "--audio-encoder-compute-units", self.config.audio_encoder_compute_units,
-            "--text-decoder-compute-units", self.config.text_decoder_compute_units,
-            "--language", self.config.language,
-            "--chunking-strategy", self.config.chunking_strategy,
-        ]
-
-        logger.info("Starting live microphone stream with Argmax WhisperKit...")
-        self._stop_event.clear()
-        self._process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,  # Line-buffered
+        return self._process is not None and (
+            self._process.poll() is None or (self._thread is not None and self._thread.is_alive())
         )
 
+    def start(self) -> None:
+        if self.is_running():
+            return
+        if self._process is not None:
+            self.stop()
+        WhisperKitEngine(self.config)  # Same asset validation as file inference.
+        cmd = offline_command(self.config) + ["--stream"]
+        self._stop_event.clear()
+        self._diagnostics.clear()
+        self._text_queue = Queue()
+        self._confirmed_count = self._snapshot_index = 0
+        self._partial_segments = []
+        self._last_partial = ""
+
+        # Swift stdout is block-buffered when piped. A PTY makes live snapshots
+        # available immediately. Merging stderr also prevents an undrained pipe
+        # from blocking the process when CoreML emits diagnostics.
+        master, slave = pty.openpty()
+        try:
+            self._process = subprocess.Popen(
+                cmd, stdin=subprocess.DEVNULL, stdout=slave,
+                stderr=subprocess.STDOUT, env=offline_environment(),
+            )
+        except Exception:
+            os.close(master)
+            raise
+        finally:
+            os.close(slave)
+        self._output = os.fdopen(master, "r", encoding="utf-8", errors="replace")
         self._thread = threading.Thread(target=self._read_stream, daemon=True)
         self._thread.start()
 
+    @staticmethod
+    def _callback(callback, value):
+        if callback:
+            try:
+                callback(value)
+            except Exception:
+                logger.exception("Speech callback failed")
+
+    def _handle_line(self, line: str) -> None:
+        text = line.strip()
+        if text == "---":
+            self._snapshot_index = 0
+            self._partial_segments = []
+        elif text.startswith("Confirmed segment:"):
+            self._snapshot_index += 1
+            if self._snapshot_index <= self._confirmed_count:
+                return
+            self._confirmed_count = self._snapshot_index
+            transcript = _clean_whisper_text(text.partition(":")[2])
+            if transcript:
+                self._text_queue.put(transcript)
+                self._callback(self.on_text, transcript)
+        elif text.startswith("Unconfirmed segment:"):
+            self._partial_segments.append(_clean_whisper_text(text.partition(":")[2]))
+        elif text.startswith("Current text:"):
+            current = _clean_whisper_text(text.partition(":")[2])
+            partial = " ".join(filter(None, [*self._partial_segments, current]))
+            if partial != self._last_partial:
+                self._last_partial = partial
+                self._callback(self.on_partial_text, partial)
+        elif text:
+            self._diagnostics.append(text)
+
     def _read_stream(self) -> None:
-        """Internal worker thread reading stdout from whisperkit-cli."""
-        if not self._process or not self._process.stdout:
-            return
+        try:
+            for line in self._output:
+                if self._stop_event.is_set():
+                    break
+                self._handle_line(line)
+        except OSError as error:
+            # PTYs on macOS/Linux may report EIO when the child closes its side.
+            if error.errno != errno.EIO:
+                self._diagnostics.append(str(error))
+        finally:
+            self._output.close()
 
-        for line in self._process.stdout:
-            if self._stop_event.is_set():
-                break
-
-            text = line.strip()
-            # Filter out startup or progress logs if any
-            if not text or text.startswith("[") or "IOSurface" in text:
-                continue
-
-            # Callback for raw text
-            if self.on_text:
-                try:
-                    self.on_text(text)
-                except Exception as e:
-                    logger.error(f"Error in on_text callback: {e}")
-
-            # Parse into contactless command
-            parsed = self.parser.parse(text)
-            self._event_queue.put(parsed)
-
-            if self.on_command and parsed.is_known:
-                try:
-                    self.on_command(parsed)
-                except Exception as e:
-                    logger.error(f"Error in on_command callback: {e}")
+    def raise_if_failed(self) -> None:
+        """Surface subprocess errors to a caller's event loop."""
+        if self._process is not None and not self.is_running():
+            code = self._process.poll()
+            if code and not self._stop_event.is_set():
+                detail = "\n".join(self._diagnostics)
+                raise RuntimeError(f"WhisperKit microphone stream exited with code {code}:\n{detail}")
 
     def stop(self) -> None:
-        """Stops the streaming listener and terminates the CLI process."""
         self._stop_event.set()
-        if self._process:
-            logger.info("Stopping WhisperKit streaming process...")
-            self._process.terminate()
+        process = self._process
+        if process is not None:
+            if process.poll() is None:
+                process.terminate()
             try:
-                self._process.wait(timeout=2.0)
+                process.wait(timeout=2)
             except subprocess.TimeoutExpired:
-                self._process.kill()
-            self._process = None
+                process.kill()
+                process.wait()
+        if self._thread and self._thread is not threading.current_thread():
+            self._thread.join(timeout=3)
+        self._process = None
+        self._thread = None
 
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=1.0)
-            self._thread = None
+    def get_text(self, timeout: Optional[float] = None) -> Optional[str]:
+        """Retrieve the next confirmed transcript; return None on timeout.
 
-    def get_command(self, timeout: Optional[float] = None) -> Optional[ParsedCommand]:
-        """Blocking or timed retrieval of the next recognized command."""
+        Use timeout=0 for nonblocking polling from an application's event loop.
+        The original words are preserved, including phrases such as 'scroll down'.
+        """
         try:
-            return self._event_queue.get(timeout=timeout)
+            return self._text_queue.get(timeout=timeout)
         except Empty:
+            self.raise_if_failed()
             return None
 
     def __enter__(self):
