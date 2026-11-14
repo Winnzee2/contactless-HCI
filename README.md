@@ -1,55 +1,51 @@
-# Local Control — 离线手势鼠标与语音定位
+# Local Control — Offline Hand Mouse and Voice Targeting
 
-在 Apple Silicon Mac 上，用食指移动鼠标，用手势点击，用语音说出附近可见文字来定位目标。摄像头识别、语音转写、屏幕文字识别和 Bonsai 推理都在本机完成。
+On an Apple Silicon Mac, move the pointer with your index finger, pinch to click, and name nearby visible text to target it. Camera recognition, speech transcription, screen text recognition, and Bonsai inference all run locally.
 
-**语音只负责定位，不执行点击。** 例如，把指针移到标签附近，说“Codex”，指针会移动到识别出的目标并锁定。前 **3 秒**忽略食指移动，给你时间用拇指与中指捏合完成左键点击。
+**Voice positions the pointer; it never clicks.** For example, point near a visible label and say “Codex.” The pointer moves to the recognized target and locks in place. For the first **3 seconds**, finger movement cannot pull it away, giving you time to pinch your thumb and middle finger for a left click.
 
-English: An offline desktop controller. Point with your index finger, name a nearby visible label to target it, and pinch to click. Argmax transcribes audio; Bonsai selects a local OCR candidate. Voice never clicks. A selected target ignores finger movement for three seconds so you can prepare a pinch; clicking, pausing, or losing hand tracking clears the lock immediately.
+## Launch
 
-## 启动 / Launch
-
-这台 Mac 已准备好模型和运行时。在 Finder 中双击项目里的 **[Local Control.app](<.build/Local Control.app>)**。`.build` 是隐藏文件夹，可在项目窗口按 `⌘⇧.` 显示，或在项目目录运行：
+On the Mac with models and runtimes already prepared, double-click **[Local Control.app](<.build/Local Control.app>)** in Finder. The `.build` folder is hidden; press `⌘⇧.` in the project folder to show it, or run this command from the project directory:
 
 ```bash
 open ".build/Local Control.app"
 ```
 
-命令行备用入口：
+Alternatively, launch from the command line:
 
 ```bash
 python3 desktop.py
 ```
 
-也可以双击项目中的 **[Launch Local Control.command](<Launch Local Control.command>)**。启动器会在缺少原生辅助程序时编译，并在需要时启动已安装的本地 Bonsai 服务。它不会下载缺失的模型。
+You can also double-click **[Launch Local Control.command](<Launch Local Control.command>)** in the project folder. The launcher builds the native helper if it is missing and starts the installed local Bonsai service when needed. It does not download missing models.
 
-**English launch:** On this prepared Mac, open `.build/Local Control.app` in Finder, or run `python3 desktop.py` from the project folder. Grant Camera, Microphone, Accessibility, and Screen Recording permissions, then click **Enable pointer**. The app starts paused.
+The `.app` is a Finder launcher for the prepared project. Keep the project files, Argmax models, and Bonsai/MLX runtime in their existing locations. Copying the `.app` alone to another Mac is not sufficient. If you move the project directory, run `bash scripts/build_product.sh` again.
 
-这个 `.app` 是已准备项目的 Finder 启动器。项目文件、Argmax 模型和用户目录中的 Bonsai/MLX 运行时仍需要保留；单独复制 `.app` 到另一台电脑不能运行。移动项目目录后，请重新执行 `bash scripts/build_product.sh`。
+On first use, open **System Settings → Privacy & Security** and grant permissions to Local Control or the terminal identified by macOS:
 
-首次使用，请在 **系统设置 → 隐私与安全性** 中为系统提示的 Local Control 或启动它的终端授权：
+- **Camera**: recognize your hand.
+- **Microphone**: capture speech for transcription.
+- **Accessibility**: move the pointer and send clicks.
+- **Screen Recording**: read visible text near the pointer.
 
-- **摄像头 / Camera**：识别手部。
-- **麦克风 / Microphone**：采集待转写的语音。
-- **辅助功能 / Accessibility**：移动鼠标和发送点击。
-- **屏幕录制 / Screen Recording**：读取指针附近的可见文字。
+You may need to quit and restart after changing permissions. The app starts **PAUSED**. Click **Enable pointer** in the preview window, or press Space while that window is active.
 
-修改权限后可能需要完全退出并重新启动。默认状态为 **PAUSED**；在预览窗口点击 **Enable pointer**，或在该窗口按空格开启。
-
-| 输入 | 行为 |
+| Input | Behavior |
 | --- | --- |
-| 食指移动 | 移动主显示器上的指针 |
-| 拇指 + 中指捏合 | 左键单击；松开后才能再次触发 |
-| 拇指 + 无名指捏合 | 右键单击 |
-| 说出附近文字，例如“Codex” | Argmax 转写 → 局部 OCR → Bonsai 选择 → 指针定位；不点击 |
-| 定位后前 3 秒移动食指 | 保持目标位置，方便准备捏合 |
-| 定位 3 秒后明显移动手部 | 解除锁定；手保持稳定时继续锁定 |
-| 空格（控制窗口内） | 开启 / 暂停 |
-| Escape | 暂停控制 |
-| Q（控制窗口内）或关闭窗口 | 退出 |
+| Move your index finger | Move the pointer on the primary display |
+| Pinch thumb + middle finger | Left click; release before triggering another click |
+| Pinch thumb + ring finger | Right click |
+| Say nearby text, such as “Codex” | Argmax transcription → local OCR → Bonsai selection → pointer positioning; no click |
+| Move your finger during the first 3 seconds after targeting | Keep the pointer on the target while you prepare a pinch |
+| Move your hand deliberately after 3 seconds | Release the lock; a steady hand keeps the target locked |
+| Space, while the control window is active | Enable or pause |
+| Escape | Pause control |
+| Q, while the control window is active, or close the window | Quit |
 
-捏合点击后立即解除锁定。暂停或丢失可靠的手部跟踪也会立即清除锁定，不受 3 秒保护期限制。
+A pinch click releases the lock immediately. Pausing or losing reliable hand tracking also clears the lock immediately, including during the 3-second protection period.
 
-其他启动方式：
+Additional launch options:
 
 ```bash
 python3 desktop.py --check
@@ -57,13 +53,13 @@ python3 desktop.py --gesture-only
 python3 desktop.py --speech-model base --language auto
 ```
 
-`--check` 检查已安装资产、原生程序和正在运行的模型服务；它不会自动启动 Bonsai。`--gesture-only` 仅运行摄像头和手势鼠标，不启用语音定位。
+`--check` inspects installed assets, the native app, and the running model service; it does not start Bonsai automatically. `--gesture-only` runs the camera and hand mouse without voice targeting.
 
-## 模型与离线准备 / Local models
+## Local Models and Offline Setup
 
-需要 Apple Silicon、macOS 14+、Python 3.9+、Xcode Command Line Tools，以及 Argmax 的 `whisperkit-cli`。摄像头手部识别和 OCR 使用 macOS 自带的 Vision 框架，不依赖浏览器 CDN 或额外的 Python 视觉库。
+Requirements: Apple Silicon, macOS 14+, Python 3.9+, Xcode Command Line Tools, and Argmax's `whisperkit-cli`. Hand tracking and OCR use the Vision framework bundled with macOS, without browser CDNs or additional Python vision libraries.
 
-在允许联网的准备阶段安装并缓存 Argmax：
+Install and cache Argmax during the online preparation stage:
 
 ```bash
 brew install whisperkit-cli
@@ -71,40 +67,40 @@ bash scripts/setup_models.sh --model base --language auto
 bash scripts/build_product.sh
 ```
 
-桌面产品默认使用 **多语言 Whisper base**，支持中文和英文。`tiny.en` / `base.en` 是英语模型；`tiny` / `base` 是多语言模型。模型与 tokenizer 存放于项目的 `models/`，不提交到 Git。
+The desktop app defaults to **multilingual Whisper base**, which supports Chinese and English. `tiny.en` and `base.en` are English-only models; `tiny` and `base` are multilingual. Models and tokenizers are stored in the project's `models/` folder and are not committed to Git.
 
-Bonsai 使用这台 Mac 上已安装的 **Ternary Bonsai-2 2B**：
+Bonsai uses the **Ternary Bonsai-2 2B** model already installed on this Mac:
 
 ```text
 ~/.lmstudio/models/prism-ml/Ternary-Bonsai-2-2B-mlx-2bit
 ```
 
-`scripts/start_bonsai.sh` 使用 LM Studio 已安装、支持该模型的 MLX 运行时，将服务绑定到 `127.0.0.1:1234`，模型标识为 `bonsai-local`。可手动启动：
+`scripts/start_bonsai.sh` uses LM Studio's installed MLX runtime with support for this model. It binds the service to `127.0.0.1:1234` with the model ID `bonsai-local`. To start it manually:
 
 ```bash
 bash scripts/start_bonsai.sh
 ```
 
-另一台 Mac 需要预先安装兼容运行时和模型；可用 `BONSAI_MODEL_PATH`、`BONSAI_PYTHON` 指定本机路径。启动器不会从云端补齐它们。使用的 HTTP 接口是 **Bonsai 的本机接口**；Argmax 通过原生 Swift CLI 调用，**没有使用 Argmax Local Server API**。
+On another Mac, install compatible models and runtimes in advance. Use `BONSAI_MODEL_PATH` and `BONSAI_PYTHON` to specify their local paths. The launcher will not fetch missing dependencies from the cloud. The HTTP interface belongs to **the local Bonsai service**. Argmax runs through its native Swift CLI; **the Argmax Local Server API is not used**.
 
-**English setup:** Before going offline, install the requirements above, cache multilingual Whisper `base` with `scripts/setup_models.sh`, and install the Bonsai-2 2B weights plus a compatible local MLX runtime. Run `bash scripts/build_product.sh` to build the Finder launcher. Keep the project and local model/runtime folders in place; the launcher is not a standalone transferable bundle.
+Before disconnecting from the internet, complete the setup above and build the Finder launcher with `bash scripts/build_product.sh`. Keep the project, models, and runtime folders in place; the launcher is not a standalone transferable bundle.
 
-Argmax 推理进程禁止联网。Bonsai 启动脚本禁止外网，仅允许本机回环通信，并开启模型库的离线模式。`127.0.0.1` 在 Wi-Fi 关闭后仍可使用。
+Argmax inference processes are denied network access. The Bonsai startup script blocks external networking, permits only local loopback connections, and enables the model libraries' offline modes. `127.0.0.1` remains available when Wi-Fi is off.
 
-**2026-11-14 实测：** 在 Wi-Fi 实际关闭期间，摄像头、真实屏幕 OCR，以及合成语音经真实 Argmax、Bonsai、控制器生成 `Codex` 移动指令的检查通过，之后已恢复 Wi-Fi。另一次 **Wi-Fi 开启**的真人测试完成了“说 Codex → 指针实际定位 → 手势左键/右键”和“说 Safari → 定位 → 手势左键”，本地浏览器验收板收到了点击。这两次验证的网络状态和输入方式不同；尚未录制完整的断网真人演示视频。具体证据见 [验证记录](docs/VERIFICATION.md)，复现流程见 [演示指南](docs/DEMO.md)。
+**Verification on November 14, 2026:** With Wi-Fi switched off, the camera, real screen OCR, and a synthesized-speech pipeline using real Argmax, Bonsai, and the coordinator passed their checks and produced the correct `Codex` movement instruction. Wi-Fi was restored afterward. In a separate live test with **Wi-Fi on**, a user said “Codex,” the pointer moved to the target, and hand gestures performed left and right clicks. Saying “Safari” followed by a left-click gesture also worked, and the local browser test board received the clicks. These tests used different network states and inputs; a complete live demonstration video with Wi-Fi off has not yet been recorded. See the [verification record](docs/VERIFICATION.md) for evidence and the [demo guide](docs/DEMO.md) for the procedure.
 
-## 定位范围与当前限制
+## Targeting Scope and Current Limitations
 
-- 目标来自语音开始时指针附近约 **720 × 420** 屏幕点的 OCR 区域；先把手移到目标附近。
-- Bonsai 只选择 OCR 已识别出的文字 ID，不生成鼠标坐标。
-- 重复标签、找不到文字、歧义或过期结果不会定位。
-- 支持的是当前可见文字，不是全屏图标识别、隐藏标签搜索或任意界面的自主操作。
-- 原型针对主显示器；窗口遮挡、很小的文字、光线、手部姿态和噪声都可能影响识别。
-- 真人连续测试已覆盖本地验收板上的 `Codex` 和 `Safari`；不同应用、目标布局和关闭 Wi-Fi 后的完整录制流程仍按 [两分钟演示检查表](docs/DEMO.md) 验证。
+- Targets come from an OCR region of approximately **720 × 420** screen points around the pointer when speech begins. Move near the target first.
+- Bonsai selects IDs for text already recognized by OCR; it does not generate mouse coordinates.
+- Duplicate labels, missing text, ambiguous matches, and expired results do not trigger targeting.
+- Targeting supports currently visible text. It does not recognize arbitrary icons across the screen, find hidden labels, or navigate interfaces autonomously.
+- The prototype targets the primary display. Occluded windows, small text, lighting, hand posture, and noise can affect recognition.
+- Live testing has covered `Codex` and `Safari` on the local test board. Use the [two-minute demo checklist](docs/DEMO.md) to verify other applications, target layouts, and a complete recording with Wi-Fi off.
 
-## 独立的纯转写接口
+## Standalone Text-Only Transcription Interface
 
-原来的 `src/stt`、`cli.py`、`main.py` 仍然只返回文字，不识别手势、不执行操作：
+The original `src/stt`, `cli.py`, and `main.py` interfaces still return text only. They do not recognize gestures or execute actions:
 
 ```bash
 python3 cli.py check
@@ -119,9 +115,9 @@ engine = WhisperKitEngine(STTConfig(model_name="base", language="auto"))
 print(engine.transcribe("recording.wav").text)
 ```
 
-运行 API 示例时使用 `PYTHONPATH=src python3 your_script.py`。`WhisperKitStreamer` 提供 `on_text` 回调与 `get_text(timeout)`；原始语音不会在 STT 层被解释成动作。
+Run API examples with `PYTHONPATH=src python3 your_script.py`. `WhisperKitStreamer` provides an `on_text` callback and `get_text(timeout)`. The STT layer never interprets spoken text as an action.
 
-## 测试与文档
+## Tests and Documentation
 
 ```bash
 python3 -m unittest discover tests -v
@@ -130,12 +126,12 @@ STT_INTEGRATION=1 python3 -m unittest discover tests -v
 python3 scripts/test_product_offline.py
 ```
 
-第二条命令需要已准备 `tiny.en` 和 `base.en`，并允许 CoreML 硬件访问；它包含真实推理和网络禁止策略验证。原生 `--self-test` 不打开摄像头或操作鼠标。最后一条验证真实 OCR → Argmax → Bonsai → 移动指令链路，使用合成音频与生成图像，不操作系统鼠标。
+The second command requires prepared `tiny.en` and `base.en` models and permission to access CoreML hardware. It tests real inference and the network-denial policy. The native `--self-test` does not open the camera or operate the mouse. The last command verifies the real OCR → Argmax → Bonsai → movement-instruction pipeline using synthesized audio and a generated image; it does not operate the system mouse.
 
-- [产品交互说明](docs/PRODUCT.md)
-- [系统架构与数据边界](docs/ARCHITECTURE.md)
-- [断网验收与比赛演示脚本](docs/DEMO.md)
-- [已验证范围与复现方法](docs/VERIFICATION.md)
-- [独立语音模块的离线安装](docs/OFFLINE_SETUP.md)
+- [Product interaction guide](docs/PRODUCT.md)
+- [System architecture and data boundaries](docs/ARCHITECTURE.md)
+- [Offline acceptance checks and hackathon demo script](docs/DEMO.md)
+- [Verified scope and reproduction steps](docs/VERIFICATION.md)
+- [Offline setup for the standalone speech module](docs/OFFLINE_SETUP.md)
 
-技术依赖：[Argmax WhisperKit](https://github.com/argmaxinc/argmax-oss-swift)、[Apple Vision](https://developer.apple.com/documentation/vision)、本机安装的 PrismML Bonsai-2 与 LM Studio MLX 运行时。
+Dependencies: [Argmax WhisperKit](https://github.com/argmaxinc/argmax-oss-swift), [Apple Vision](https://developer.apple.com/documentation/vision), and the locally installed PrismML Bonsai-2 model and LM Studio MLX runtime.
