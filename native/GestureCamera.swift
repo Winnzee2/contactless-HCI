@@ -334,8 +334,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     var fistOpen = FistOpenLatch()
     var pinchPoint: CGPoint?
     var gestureBusy = false
-    var missionControlPending = false
-    var missionControlTransitionUntil = -Double.infinity
+    var missionControlTransition = MissionControlTransition()
     var lastRawPoint: CGPoint?
     var targetLock = TargetLock()
     let targetOverlay = TargetOverlay()
@@ -511,6 +510,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         armed = value
         leftPinch.reset(); rightPinch.reset()
         fistOpen.reset(); pinchPoint = nil; gestureBusy = false
+        missionControlTransition.cancel()
         targetLock.clear()
         targetOverlay.hide()
         mic.setArmed(value && tracked)
@@ -541,7 +541,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if busy { emit(["type": "gesture_cancel", "source": "gesture"]) }
     }
     var acceptsVoiceTarget: Bool {
-        !gestureBusy && !missionControlPending && now() >= missionControlTransitionUntil && now() - lastActionTime >= 0.5
+        !gestureBusy && !missionControlTransition.blocksInput(time: now()) && now() - lastActionTime >= 0.5
     }
     func publishPointer(_ point: CGPoint, time: Double) {
         if time - lastPointerEvent > 0.05 {
@@ -592,7 +592,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             let pose = classifyHandPose(joints: joints, videoSize: videoSize)
             let showWindows = fistOpen.update(pose: pose, time: time)
             if showWindows || fistOpen.isEngaged || pose == .fist || pose == .closing ||
-                missionControlPending || time < missionControlTransitionUntil {
+                missionControlTransition.blocksInput(time: now()) {
                 setGestureBusy(true)
                 leftPinch.reset(); rightPinch.reset(); pinchPoint = nil
                 targetLock.clear(); targetOverlay.hide()
@@ -636,6 +636,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if tracked { mic.setArmed(false) }
         leftPinch.reset(); rightPinch.reset()
         fistOpen.reset(); pinchPoint = nil; gestureBusy = false
+        missionControlTransition.cancel()
         targetLock.clear(); lastRawPoint = nil
         targetOverlay.hide()
         pointer = nil
@@ -657,19 +658,18 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
     func openWindowOverview() {
         guard armed, tracked, now() - lastHandTime <= 0.4, AXIsProcessTrusted(),
-              !missionControlPending, now() - lastActionTime >= 0.5 else { return }
-        missionControlPending = true
-        lastActionTime = now()
-        missionControlTransitionUntil = lastActionTime + 0.75
+              now() - lastActionTime >= 0.5 else { return }
+        let startedAt = now()
+        guard let request = missionControlTransition.begin(time: startedAt) else { return }
+        lastActionTime = startedAt
+        emit(["type": "action", "action": "mission_control", "source": "gesture", "phase": "requested"])
+        speechLabel.stringValue = "Opening window overview. Point and pinch after it opens."
+        // Launch completion is bookkeeping only. Pointer and pinch processing
+        // resume after the animation deadline, even while this callback waits.
         showMissionControl { [weak self] error in
             guard let self = self else { return }
-            self.missionControlPending = false
-            guard !self.closing else { return }
+            guard !self.closing, self.missionControlTransition.complete(request: request) else { return }
             if let error = error { self.report("Cannot show windows: \(error.localizedDescription)") }
-            else {
-                emit(["type": "action", "action": "mission_control", "source": "gesture"])
-                self.speechLabel.stringValue = "Windows overview opened. Point and pinch to choose a window."
-            }
         }
     }
     func readInput() {

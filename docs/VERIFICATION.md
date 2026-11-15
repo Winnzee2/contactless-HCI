@@ -1,6 +1,12 @@
 # 离线验证记录与复现
 
-The later [cross-application verification](CROSS_APP.md) adds five successful Wi-Fi-off target-selection checks in Finder, TextEdit, and Safari, plus the target highlight/countdown. After adding held-pinch double-click and fist-to-open Mission Control, the current regression totals are **94 Python checks and 106 native checks**. Earlier human-input and component records retain their original scope; they do not substitute for physical acceptance of the new gestures.
+The later [cross-application verification](CROSS_APP.md) adds five successful Wi-Fi-off target-selection checks in Finder, TextEdit, and Safari, plus the target highlight/countdown. After the Mission Control recovery fix, the regression suite contains **94 Python checks and 125 native checks**. Earlier human-input and component records retain their original scope; they do not substitute for physical acceptance of the new gestures.
+
+## Mission Control Input Recovery
+
+The original controller blocked hand input for the entire asynchronous Mission Control launch request. It now blocks only during a bounded 0.75-second opening transition, independently of the completion callback. Pointer movement and pinch processing can then continue while the overview is open. Pause and tracking loss cancel the transition and invalidate its request token; delayed completions cannot affect a newer request or cancel a new voice search. Duplicate launch suppression also expires after three seconds.
+
+All **125 native checks passed**, including 19 new regressions for missing, delayed, duplicate, and stale callbacks, retry timeout, and single/double-click recognition while launch completion remains pending. The Python run passed **92 tests**, with the two optional real-model checks skipped for this native-state fix; the preceding feature build's complete 94-test run is documented below. This recovery validation uses deterministic state traces, not a new physical hand-gesture recording.
 
 ## Held Pinch and Window Overview Verification
 

@@ -51,6 +51,8 @@ A single click, double-click, or right click releases the target lock. A held mi
 
 For Mission Control, hold a closed fist for about **0.35 seconds**, then open your hand within **2 seconds** and keep it open briefly. The gesture cancels pending voice targeting and does not send a mouse click. A short cooldown prevents repeated triggers. Both new gestures run locally and also work in `--gesture-only` mode.
 
+Pointer movement and pinch clicks resume after the **0.75-second opening transition**, while the window overview remains open. A delayed macOS launch callback cannot keep gesture control locked.
+
 Pausing or losing reliable hand tracking cancels an unfinished gesture and clears the target lock immediately, including during the 3-second protection period. Open your fingers before starting another pinch after a pause or tracking loss.
 
 Additional launch options:

@@ -202,6 +202,58 @@ struct FistOpenLatch {
     }
 }
 
+// Opening the overview is asynchronous, but it must never own input for the
+// lifetime of the system launch request. A delayed callback must not prevent
+// selecting a window with the hand mouse while the overview remains open.
+struct MissionControlTransition {
+    static let inputBlockDuration: TimeInterval = 0.75
+    static let launchTimeout: TimeInterval = 3
+    private var generation: UInt64 = 0
+    private var pendingRequest: UInt64?
+    private var pendingUntil = -Double.infinity
+    private var inputStartedAt = -Double.infinity
+    private var inputBlockedUntil = -Double.infinity
+
+    mutating func begin(time: TimeInterval) -> UInt64? {
+        guard time.isFinite,
+              time + Self.inputBlockDuration > time,
+              time + Self.launchTimeout > time,
+              (time + Self.launchTimeout).isFinite else { return nil }
+        // Duplicate requests are suppressed briefly. A missing callback cannot
+        // prevent a fresh deliberate gesture from trying again later.
+        if pendingRequest != nil && time < pendingUntil { return nil }
+        guard generation < UInt64.max else { return nil }
+        generation += 1
+        pendingRequest = generation
+        pendingUntil = time + Self.launchTimeout
+        inputStartedAt = time
+        inputBlockedUntil = time + Self.inputBlockDuration
+        return generation
+    }
+
+    func blocksInput(time: TimeInterval) -> Bool {
+        time.isFinite && time >= inputStartedAt && time < inputBlockedUntil
+    }
+
+    @discardableResult
+    mutating func complete(request: UInt64) -> Bool {
+        guard pendingRequest == request else { return false }
+        pendingRequest = nil
+        pendingUntil = -Double.infinity
+        // Success and failure complete the same request. Neither changes the
+        // independent animation deadline or re-locks input after it expires.
+        return true
+    }
+
+    mutating func cancel() {
+        pendingRequest = nil
+        pendingUntil = -Double.infinity
+        inputStartedAt = -Double.infinity
+        inputBlockedUntil = -Double.infinity
+        if generation < UInt64.max { generation += 1 }
+    }
+}
+
 /// Temporal traces and synthetic hand geometry; no camera, TCC, or UI needed.
 func handGestureSelfTest() -> (tests: Int, failures: [String]) {
     var tests = 0
@@ -303,6 +355,64 @@ func handGestureSelfTest() -> (tests: Int, failures: [String]) {
     for index in 1...12 { _ = fist.update(pose: .fist, time: 10 + Double(index) * 0.25) }
     _ = fist.update(pose: .open, time: 13.1)
     check(fist.update(pose: .open, time: 13.3), "A deliberately held fist may open after several seconds")
+
+    var overview = MissionControlTransition()
+    check(!overview.blocksInput(time: 0), "No overview request leaves normal input available")
+    let firstOverview = overview.begin(time: 20)!
+    check(overview.blocksInput(time: 20) && overview.blocksInput(time: 20.749),
+          "Overview animation briefly suppresses input")
+    check(!overview.blocksInput(time: 20.75) && !overview.blocksInput(time: 22),
+          "A missing overview callback cannot block input beyond 750 ms")
+    check(overview.begin(time: 22) == nil,
+          "Input resumes while duplicate launch requests are still suppressed")
+
+    // Exercise the actual pinch latch after an overview whose callback never
+    // completes: both normal click modes must remain available in the overview.
+    var resumedPinch = HoldPinchLatch()
+    func afterOverview(_ ratio: Double, _ time: Double) -> PinchHoldEvent {
+        resumedPinch.update(ratio: ratio, eligible: !overview.blocksInput(time: time), time: time)
+    }
+    _ = afterOverview(0.8, 20.8)
+    check(afterOverview(0.2, 20.9) == .began,
+          "A new pinch can start with the Mission Control callback still pending")
+    check(afterOverview(0.8, 21.05) == .singleClick,
+          "A normal single click works while Mission Control launch is pending")
+    _ = afterOverview(0.2, 21.2)
+    _ = afterOverview(0.2, 21.5)
+    _ = afterOverview(0.2, 21.8)
+    check(afterOverview(0.2, 21.9) == .doubleClick,
+          "A held double click works while Mission Control launch is pending")
+    check(afterOverview(0.8, 22) == .released,
+          "Releasing the resumed double click produces no extra click")
+    check(overview.complete(request: firstOverview) && !overview.blocksInput(time: 22.1),
+          "A delayed matching callback cannot re-lock resumed input")
+    check(!overview.complete(request: firstOverview),
+          "A duplicate completion is ignored")
+
+    let beforeCancel = overview.begin(time: 24)!
+    overview.cancel()
+    check(!overview.blocksInput(time: 24.1) && !overview.complete(request: beforeCancel),
+          "Pause or tracking loss cancels both the transition and its old callback")
+    let afterCancel = overview.begin(time: 24.2)!
+    check(afterCancel > beforeCancel && !overview.complete(request: beforeCancel),
+          "A late callback cannot complete a newer launch after re-enabling")
+    check(overview.blocksInput(time: 24.3),
+          "Ignoring a stale callback preserves the newer transition")
+    check(overview.complete(request: afterCancel) && overview.blocksInput(time: 24.3) &&
+          !overview.blocksInput(time: 24.95),
+          "An early success or failure leaves only the bounded animation delay")
+
+    let timedOut = overview.begin(time: 30)!
+    check(overview.begin(time: 32.999) == nil, "A duplicate launch cannot start before its timeout")
+    let retry = overview.begin(time: 33)
+    check(retry != nil && retry! > timedOut,
+          "A missing callback cannot prevent a new launch after three seconds")
+    check(!overview.complete(request: timedOut) && overview.blocksInput(time: 33.1),
+          "A timed-out callback cannot affect the retry")
+    check(!overview.blocksInput(time: 33.75), "The retry also releases input without a callback")
+    overview.cancel()
+    check(overview.begin(time: .nan) == nil && overview.begin(time: .infinity) == nil &&
+          !overview.blocksInput(time: .nan), "Invalid transition timestamps cannot arm an input lock")
 
     let video = CGSize(width: 1280, height: 720)
     let fingers: [[HandJoint]] = [
