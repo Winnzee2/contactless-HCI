@@ -49,10 +49,12 @@ final class NotesPanel: NSObject, NSWindowDelegate {
     }
     private func makePanel() {
         guard panel == nil else { return }
-        let window = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 460, height: 340),
+        let window = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 500, height: 390),
                              styleMask: [.titled, .closable, .resizable, .nonactivatingPanel],
                              backing: .buffered, defer: false)
         window.title = "Jarvis · Local notes"
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = NSColor(srgbRed: 0.055, green: 0.06, blue: 0.075, alpha: 1)
         window.appearance = NSAppearance(named: .darkAqua)
         window.isReleasedWhenClosed = false; window.hidesOnDeactivate = false
         window.level = .floating; window.delegate = self
@@ -73,9 +75,17 @@ final class NotesPanel: NSObject, NSWindowDelegate {
         let choose = NSButton(title: "Notes folder…", target: self, action: #selector(chooseFolder))
         let stop = NSButton(title: "Stop recording", target: self, action: #selector(stop))
         let retry = NSButton(title: "Retry save", target: self, action: #selector(retrySave))
+        stop.bezelStyle = .rounded
+        stop.bezelColor = NSColor(srgbRed: 0.65, green: 0.22, blue: 0.28, alpha: 1)
+        let heading = NSTextField(labelWithString: "JARVIS  /  PERSONAL NOTES")
+        heading.font = .monospacedSystemFont(ofSize: 11, weight: .semibold)
+        heading.textColor = .systemCyan
+        let subtitle = NSTextField(labelWithString: "Speak freely. Everything stays on this Mac.")
+        subtitle.font = .systemFont(ofSize: 12); subtitle.textColor = .secondaryLabelColor
+        scroll.wantsLayer = true; scroll.layer?.cornerRadius = 12; scroll.layer?.masksToBounds = true
         let buttons = NSStackView(views: [choose, stop, retry])
         buttons.spacing = 8
-        let stack = NSStackView(views: [scroll, status, buttons])
+        let stack = NSStackView(views: [heading, subtitle, scroll, status, buttons])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
         let root = NSView()

@@ -1,5 +1,12 @@
 # 离线验证记录与复现
 
+## Cohesive Visual Refresh and Feature Guide
+
+The native main window now uses a graphite palette, cyan monospaced labels, a rounded camera viewport, four equal-height gesture cards, and grouped controls. The speech/hand pane includes a subtle plotting background; target labels use monospaced type. Jarvis uses matching typography, inset writing space, and a clearer heading. Both offline practice pages use the same dark palette with visible focus states and readable helper text. docs/FEATURES.md inventories implemented features and limitations and is linked from the README.
+
+The build passed, alongside 186 Python tests (two optional skips) and 328 native checks. The main window was rendered at default and minimum supported sizes; an uneven-card issue was fixed and re-rendered. Both HTML pages were loaded locally in WKWebView and visually inspected. Jarvis file-saving/retry probes and click-through/nonactivating overlay checks passed. Render artifacts are in ignored .build/verification/design/, with companion note and skeleton images in their existing preview directories. The main preview deliberately did not activate the camera, so its viewport is blank. No new physical gesture accuracy or Wi-Fi-off trial is claimed for cosmetic changes.
+
+
 ## Live Hand Skeleton in the Voice Pane
 
 The upper-right pane now receives the tracked Vision joints on each valid hand frame and draws a mirrored, aspect-correct, centered hand skeleton below the transcript. Missing joints do not get fabricated connections; tracking loss clears the skeleton. The index tip is highlighted in white. Existing text status remains secondary below the visualization.

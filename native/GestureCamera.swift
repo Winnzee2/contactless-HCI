@@ -465,24 +465,70 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         requestCamera()
     }
     func makeWindow() {
-        window = ControlWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 650),
+        window = ControlWindow(contentRect: NSRect(x: 0, y: 0, width: 920, height: 760),
                                styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Local Control · Hand + Voice"
         window.isRestorable = false
-        window.minSize = NSSize(width: 640, height: 480)
+        window.minSize = NSSize(width: 760, height: 680)
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = NSColor(srgbRed: 0.035, green: 0.045, blue: 0.065, alpha: 1)
         window.delegate = self
         let root = NSView(); root.translatesAutoresizingMaskIntoConstraints = false
+        root.wantsLayer = true
+        root.layer?.backgroundColor = NSColor(srgbRed: 0.035, green: 0.045, blue: 0.065, alpha: 1).cgColor
         window.contentView = root
+        let brand = NSTextField(labelWithString: "LOCAL CONTROL")
+        brand.font = .monospacedSystemFont(ofSize: 13, weight: .semibold)
+        brand.textColor = .systemCyan
+        let tagline = NSTextField(labelWithString: "A little movement. A few words. Full control.")
+        tagline.font = .systemFont(ofSize: 23, weight: .medium)
+        let privacy = NSTextField(labelWithString: "ON DEVICE  /  OFFLINE")
+        privacy.font = .monospacedSystemFont(ofSize: 10, weight: .medium)
+        privacy.textColor = NSColor(srgbRed: 0.55, green: 0.68, blue: 0.76, alpha: 1)
+        let masthead = NSStackView(views: [brand, tagline, privacy])
+        masthead.orientation = .vertical; masthead.alignment = .leading; masthead.spacing = 6
+        masthead.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(masthead)
         preview = PreviewView(frame: .zero); preview.translatesAutoresizingMaskIntoConstraints = false
         preview.preview.session = session
+        preview.wantsLayer = true
+        preview.layer?.cornerRadius = 16
+        preview.layer?.masksToBounds = true
+        preview.layer?.borderWidth = 1
+        preview.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
         stateLabel = NSTextField(labelWithString: "PAUSED · Starting camera…")
-        stateLabel.font = .systemFont(ofSize: 18, weight: .semibold)
+        stateLabel.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
+        stateLabel.textColor = .systemCyan
         speechLabel = NSTextField(wrappingLabelWithString: useVoice ? "Voice is preparing locally." : "Camera-only mode. Voice capture is off.")
         speechLabel.maximumNumberOfLines = 3
-        let hint = NSTextField(wrappingLabelWithString: "Index: move · Thumb + middle: release to click, pinch twice quickly to double-click · Thumb + ring: right click\nThumb + pinky: hold and move up/down to scroll\nSpace: enable/pause · Escape: pause · Q: quit")
-        hint.textColor = .secondaryLabelColor
+        speechLabel.font = .systemFont(ofSize: 13)
+        speechLabel.textColor = NSColor(srgbRed: 0.72, green: 0.78, blue: 0.84, alpha: 1)
+        func gestureCard(_ title: String, _ description: String) -> NSView {
+            let titleLabel = NSTextField(labelWithString: title)
+            titleLabel.font = .monospacedSystemFont(ofSize: 10, weight: .semibold)
+            titleLabel.textColor = .systemCyan
+            let body = NSTextField(wrappingLabelWithString: description)
+            body.font = .systemFont(ofSize: 12); body.textColor = .secondaryLabelColor
+            let stack = NSStackView(views: [titleLabel, body])
+            stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 6
+            stack.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
+            stack.wantsLayer = true
+            stack.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.045).cgColor
+            stack.layer?.cornerRadius = 10
+            stack.heightAnchor.constraint(equalToConstant: 92).isActive = true
+            return stack
+        }
+        let hint = NSStackView(views: [
+            gestureCard("01 / POINT", "Index finger moves the cursor"),
+            gestureCard("02 / CLICK", "Thumb + middle · release\nRepeat quickly to double-click"),
+            gestureCard("03 / RIGHT CLICK", "Thumb + ring finger"),
+            gestureCard("04 / SCROLL", "Thumb + pinky · move vertically")])
+        hint.orientation = .horizontal; hint.distribution = .fillEqually; hint.spacing = 8
         toggleButton = NSButton(title: "Enable pointer", target: self, action: #selector(toggle))
         toggleButton.bezelStyle = .rounded
+        toggleButton.controlSize = .large
+        toggleButton.bezelColor = NSColor(srgbRed: 0.12, green: 0.65, blue: 0.72, alpha: 1)
         let quit = NSButton(title: "Quit", target: self, action: #selector(quitPressed))
         quit.bezelStyle = .rounded
         let sound = NSButton(checkboxWithTitle: "Sound effects", target: self, action: #selector(toggleSound(_:)))
@@ -493,16 +539,25 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let reach = NSSlider(value: pointerGain, minValue: 1, maxValue: 1.5, target: self, action: #selector(changePointerGain(_:)))
         reach.setAccessibilityLabel("Pointer reach")
         reach.widthAnchor.constraint(equalToConstant: 220).isActive = true
-        let rangeRow = NSStackView(views: [rangeLabel, reach]); rangeRow.spacing = 12
+        rangeLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        let shortcuts = NSTextField(labelWithString: "SPACE enable / pause    ESC pause    Q quit")
+        shortcuts.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
+        shortcuts.textColor = .secondaryLabelColor
+        let rangeRow = NSStackView(views: [rangeLabel, reach, shortcuts]); rangeRow.spacing = 16
         let info = NSStackView(views: [stateLabel, speechLabel, hint, buttons, rangeRow])
-        info.orientation = .vertical; info.alignment = .leading; info.spacing = 9
+        info.orientation = .vertical; info.alignment = .leading; info.spacing = 13
         info.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(preview); root.addSubview(info)
         NSLayoutConstraint.activate([
-            preview.topAnchor.constraint(equalTo: root.topAnchor), preview.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            preview.trailingAnchor.constraint(equalTo: root.trailingAnchor), preview.heightAnchor.constraint(greaterThanOrEqualToConstant: 260),
-            info.topAnchor.constraint(equalTo: preview.bottomAnchor, constant: 14), info.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 18),
-            info.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -18), info.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -16)
+            masthead.topAnchor.constraint(equalTo: root.topAnchor, constant: 20),
+            masthead.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            preview.topAnchor.constraint(equalTo: masthead.bottomAnchor, constant: 18),
+            preview.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            preview.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+            preview.heightAnchor.constraint(greaterThanOrEqualToConstant: 250),
+            hint.widthAnchor.constraint(equalTo: info.widthAnchor),
+            info.topAnchor.constraint(equalTo: preview.bottomAnchor, constant: 14), info.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            info.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24), info.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -20)
         ])
         window.center(); window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

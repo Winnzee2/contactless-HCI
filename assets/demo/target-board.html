@@ -43,6 +43,27 @@
       .target { min-height: 110px; }
       .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
+
+    /* Shared offline visual language: graphite, cyan, and readable system type. */
+    :root { color-scheme: dark; color: #e5edf5; background: #0a0f18; }
+    body { margin: 0; background: radial-gradient(ellipse at 15% 0%, #153342 0, transparent 48%), #0a0f18; min-height: 100vh; }
+    main { padding-top: 48px; }
+    h1 { font-weight: 600; letter-spacing: -.035em; font-size: clamp(25px, 4vw, 38px); }
+    .badge { color: #79e4e8; border-color: #325b66; background: #112933; font: 11px ui-monospace, Menlo, monospace; letter-spacing: .06em; }
+    .english, .notice, .note, .metric span, #export-status, details p { color: #a5b7c9; }
+    .instructions { color: #c7d5e1; }
+    .target, button { background: #131e2c; color: #e5edf5; border-color: #314454; }
+    .target { border-width: 1px; min-height: 150px; }
+    .target::before { color: #71cfd8; font-family: ui-monospace, Menlo, monospace; }
+    .target[aria-selected="true"] { background: #12343d; border-color: #6de1e5; color: #a2f7ed; }
+    .target:hover, button:hover { outline: none; border-color: #6de1e5; box-shadow: inset 0 0 0 1px #6de1e5; }
+    button:focus-visible, summary:focus-visible { outline: 3px solid #8ef1ee; outline-offset: 4px; }
+    .panel, .metric, output { background: #101a27; border-color: #293d4e; }
+    .metric output { color: #8ef1ee; font-family: ui-monospace, Menlo, monospace; background: transparent; }
+    .tool { background: #162737; color: #e5edf5; border-color: #395266; border-radius: 9px; }
+    .evidence { border-color: #293d4e; }
+    pre { background: #070d15; color: #b9d7df; }
+    @media (max-width: 600px) { header { flex-wrap: wrap; } main { padding-top: 26px; } }
   </style>
 </head>
 <body>
@@ -68,8 +89,8 @@
     <div class="metric"><span>最近悬停目标编号 · Last hovered #</span><output id="last-hover">—</output></div>
     <div class="metric"><span>最近点击目标编号 · Last clicked #</span><output id="last-click">—</output></div>
   </section>
-  <p class="notice">悬停出现黄色边框；左键选中后变绿。目标名称只在上方出现一次，避免附近 OCR 重名。<br>
-    Hover shows a yellow border; a left click turns the selected tab green. Numbered readouts refer to the numbers on the tabs.<br>
+  <p class="notice">悬停出现青色边框；左键选中后显示青色高亮。目标名称只在上方出现一次，避免附近 OCR 重名。<br>
+    Hover shows a cyan border; a left click highlights the selected tab in teal. Numbered readouts refer to the numbers on the tabs.<br>
     计数来自浏览器事件，普通鼠标也会产生相同记录；它们不能单独证明已完成手势测试。<br>
     Browser events alone do not prove a gesture was used. This page records no camera or microphone data.</p>
   <div class="tools">

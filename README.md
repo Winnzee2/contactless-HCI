@@ -12,6 +12,8 @@ A click-through highlight shows the selected target and the remaining hold time.
 
 If several nearby targets match the name you say, the app circles **every matching target** and labels them **1, 2, 3, …**, ordered from top to bottom and left to right. Keep your hand visible and say a number, such as “two,” “number two,” or “第二个.” The pointer moves to that target at the original numbered position, then uses the same 15-second hold. **Choosing a number never clicks.** Say “cancel” to dismiss the circles; they expire after **15 seconds**.
 
+See the [complete feature guide](docs/FEATURES.md) for controls, voice commands, Jarvis notes, local architecture, and current limitations.
+
 ## Architecture
 
 The app combines a native macOS interface with a Python coordinator and local AI inference:

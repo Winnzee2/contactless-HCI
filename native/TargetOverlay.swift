@@ -72,7 +72,7 @@ private final class TargetOverlayView: NSView {
         let textWidth = max(0, caption.width - 20)
         (targetLabel as NSString).draw(
             in: CGRect(x: caption.minX + 10, y: caption.minY + 23, width: textWidth, height: 15),
-            withAttributes: [.font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+            withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
                              .foregroundColor: NSColor.white, .paragraphStyle: paragraph])
         (status as NSString).draw(
             in: CGRect(x: caption.minX + 10, y: caption.minY + 7, width: textWidth, height: 14),
@@ -230,6 +230,14 @@ private final class VoiceCaptionView: NSView {
             withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 9, weight: .medium),
                              .foregroundColor: muted, .kern: 1])
         let area = CGRect(x: 30, y: 40, width: bounds.width - 60, height: 112)
+        let field = NSBezierPath(roundedRect: area.insetBy(dx: -12, dy: -6), xRadius: 10, yRadius: 10)
+        NSColor.white.withAlphaComponent(0.025).setFill(); field.fill()
+        NSColor.white.withAlphaComponent(0.06).setFill()
+        for x in stride(from: area.minX, through: area.maxX, by: 16) {
+            for y in stride(from: area.minY, through: area.maxY, by: 16) {
+                NSBezierPath(ovalIn: CGRect(x: x, y: y, width: 1, height: 1)).fill()
+            }
+        }
         let points = handJoints.mapValues { CGPoint(x: (1 - $0.x) * videoSize.width, y: $0.y * videoSize.height) }
         if let minX = points.values.map({ $0.x }).min(), let maxX = points.values.map({ $0.x }).max(),
            let minY = points.values.map({ $0.y }).min(), let maxY = points.values.map({ $0.y }).max() {

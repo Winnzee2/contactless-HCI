@@ -16,6 +16,27 @@
     button:focus-visible { outline: 4px solid #125cb3; }
     output { display: block; padding: 16px; border-radius: 12px; background: white; line-height: 1.7; }
     .note { color: #435969; font-size: 13px; }
+
+    /* Shared offline visual language: graphite, cyan, and readable system type. */
+    :root { color-scheme: dark; color: #e5edf5; background: #0a0f18; }
+    body { margin: 0; background: radial-gradient(ellipse at 15% 0%, #153342 0, transparent 48%), #0a0f18; min-height: 100vh; }
+    main { padding-top: 48px; }
+    h1 { font-weight: 600; letter-spacing: -.035em; font-size: clamp(25px, 4vw, 38px); }
+    .badge { color: #79e4e8; border-color: #325b66; background: #112933; font: 11px ui-monospace, Menlo, monospace; letter-spacing: .06em; }
+    .english, .notice, .note, .metric span, #export-status, details p { color: #a5b7c9; }
+    .instructions { color: #c7d5e1; }
+    .target, button { background: #131e2c; color: #e5edf5; border-color: #314454; }
+    .target { border-width: 1px; min-height: 150px; }
+    .target::before { color: #71cfd8; font-family: ui-monospace, Menlo, monospace; }
+    .target[aria-selected="true"] { background: #12343d; border-color: #6de1e5; color: #a2f7ed; }
+    .target:hover, button:hover { outline: none; border-color: #6de1e5; box-shadow: inset 0 0 0 1px #6de1e5; }
+    button:focus-visible, summary:focus-visible { outline: 3px solid #8ef1ee; outline-offset: 4px; }
+    .panel, .metric, output { background: #101a27; border-color: #293d4e; }
+    .metric output { color: #8ef1ee; font-family: ui-monospace, Menlo, monospace; background: transparent; }
+    .tool { background: #162737; color: #e5edf5; border-color: #395266; border-radius: 9px; }
+    .evidence { border-color: #293d4e; }
+    pre { background: #070d15; color: #b9d7df; }
+    @media (max-width: 600px) { header { flex-wrap: wrap; } main { padding-top: 26px; } }
   </style>
 </head>
 <body>
