@@ -86,12 +86,12 @@ struct VoiceAction {
     init?(_ json: [String: Any], bounds: CGRect) {
         guard json["type"] as? String == "voice_action",
               let action = json["action"] as? String,
-              ["move_to", "back", "tab_left", "tab_right", "close_tab", "close_window", "change_window", "all_windows", "switch_apps", "none"].contains(action),
+              ["move_to", "back", "tab_left", "tab_right", "close_tab", "close_window", "change_window", "all_windows", "switch_apps", "toggle_cheatsheet", "none"].contains(action),
               let id = json["request_id"] as? String, !id.isEmpty, id.count <= 128 else { return nil }
         self.action = action
         self.requestID = id
         if action == "none" { self.point = nil; return }
-        if ["back", "tab_left", "tab_right", "close_tab", "close_window", "change_window", "all_windows", "switch_apps"].contains(action) {
+        if ["back", "tab_left", "tab_right", "close_tab", "close_window", "change_window", "all_windows", "switch_apps", "toggle_cheatsheet"].contains(action) {
             // Navigation has a fixed meaning, never caller-supplied keys or URLs.
             guard Set(json.keys).isSubset(of: ["type", "action", "request_id", "choice_id"]),
                   json["choice_id"] == nil || json["choice_id"] is String else { return nil }
@@ -980,6 +980,13 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         seenIDs.append(instruction.requestID)
         if seenIDs.count > 128 { seenIDs.removeFirst() }
         if instruction.action == "none" { return }
+        if instruction.action == "toggle_cheatsheet" {
+            guard armed, useVoice, currentCapture(instruction.requestID) != nil else { return }
+            sensingOverlay.toggleCheatsheet(time: now())
+            emit(["type": "action", "source": "voice", "action": instruction.action, "request_id": instruction.requestID])
+            return
+        }
+
         Task { @MainActor in
             let deadline = now() + 5
             guard await waitForVoiceHand(instruction.requestID, until: deadline) else { return }
@@ -1001,7 +1008,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         return true
     }
     func applyVoiceInstruction(_ instruction: VoiceAction, json: [String: Any], deadline: Double) {
-        if ["back", "tab_left", "tab_right", "close_tab", "close_window", "change_window", "all_windows", "switch_apps"].contains(instruction.action) {
+        if ["back", "tab_left", "tab_right", "close_tab", "close_window", "change_window", "all_windows", "switch_apps", "toggle_cheatsheet"].contains(instruction.action) {
             performVoiceNavigation(instruction, choiceID: json["choice_id"] as? String)
             return
         }
@@ -1338,7 +1345,7 @@ func selfTest() -> Bool {
         json["action"] = forbiddenAction
         check(VoiceAction(json, bounds: bounds) == nil, "gesture actions cannot be supplied by voice")
     }
-    for action in ["back", "tab_left", "tab_right", "close_tab", "close_window", "change_window", "all_windows", "switch_apps"] {
+    for action in ["back", "tab_left", "tab_right", "close_tab", "close_window", "change_window", "all_windows", "switch_apps", "toggle_cheatsheet"] {
         let navigation: [String: Any] = ["type": "voice_action", "action": action, "request_id": "navigation-test"]
         check(VoiceAction(navigation, bounds: bounds)?.action == action, "Explicit navigation requires no target coordinates")
         check(VoiceAction(navigation, bounds: bounds)?.point == nil, "Navigation does not position or click the mouse")

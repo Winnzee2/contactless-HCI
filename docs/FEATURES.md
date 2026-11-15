@@ -41,6 +41,7 @@ The fist-to-Mission-Control gesture and held-pinch double-click are disabled. Pa
 
 | Phrase | Action |
 | --- | --- |
+| “How Jarvis” | Toggle the cheatsheet while voice control is enabled; during dictation this stays note text. |
 | “Last page” / “go back” | Navigate backward in supported browsers and Finder folders. |
 | “Tab left” / “tab right” | Select the adjacent browser tab. |
 | “Close tab” | Close the current browser tab. |
@@ -69,7 +70,7 @@ Commands use explicit application rules rather than arbitrary model-generated ke
 
 - Dark graphite main interface with a rounded camera view and gesture reference cards.
 - Persistent translucent, click-through speech pane in the upper-right corner; fades to 22% opacity while the cursor is over it.
-- Always-visible Use cheatsheet below the webcam, covering gestures, targeting, spoken navigation, notes, and keyboard controls.
+- Foldable Use cheatsheet below the webcam, covering gestures, targeting, spoken navigation, notes, and keyboard controls. Say “How Jarvis” to toggle it; starts collapsed, remembers its state, and resizes the pane.
 - Immediate listening indication, red recognized speech, and separate processing status.
 - Full mirrored webcam preview in the floating speech pane, with aligned hand joints, connecting bones, and a highlighted index tip.
 - Hand status for pointing, pinches, scrolling, tracking loss, pause, and successful clicks.

@@ -225,7 +225,7 @@ The upper-right speech pane includes a live **HAND** footer: pointing, pinch pre
 
 The speech pane also shows the **full live webcam preview with a hand skeleton overlaid**. The camera image and tracked joints share the same mirrored, aspect-fit coordinates; the full frame stays visible without cropping. Cyan joint markers and connecting bones follow the pose, with a white index-tip marker. Missing landmarks are omitted, and tracking loss clears the skeleton while the camera preview continues. The preview uses the existing capture stream and does not record video.
 
-The upper-right pane includes a **Use cheatsheet** for gestures, voice navigation, targeting, dictation, and keyboard controls. Hovering over the pane fades it to 22% opacity; it remains click-through and returns to normal when the pointer leaves.
+The upper-right pane includes a foldable **Use cheatsheet** for gestures, voice navigation, targeting, dictation, and keyboard controls. Say **“How Jarvis”** to open or close it while voice control is enabled. It starts collapsed and remembers your choice; the pane resizes to fit. During note dictation, the phrase is recorded as note text. Hovering over the pane fades it to 22% opacity; it remains click-through and returns to normal when the pointer leaves.
 
 The product is named **Jarvis**. Existing macOS bundle identifiers and preference keys are retained for upgrade compatibility. Existing note-folder selections are preserved; an existing legacy notes folder is reused, while new installations default to Documents/Jarvis Notes.
 

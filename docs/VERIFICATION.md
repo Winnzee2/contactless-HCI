@@ -1,5 +1,9 @@
 # 离线验证记录与复现
 
+## Spoken Cheatsheet Toggle
+
+“How Jarvis” is an explicit local command that toggles and remembers cheatsheet visibility. Native validation accepts no coordinates for it; it does not send mouse or keyboard input. Dictation retains the phrase as note text. The pane starts collapsed and changes height without moving its top-right anchor. All 335 native checks and 186 Python tests passed (two optional skips). A focused native preview passed expand/collapse, click-through, focus, and caption persistence checks; the collapsed layout was visually inspected. A live-pointer hover probe was inconclusive while the app was running, so the focused rerun avoided moving the user’s cursor; the previously verified hover implementation is unchanged.
+
 ## Jarvis Rename, Cheatsheet, and Hover Transparency
 
 Renamed the product, Finder launcher, documentation, demos, website, and GitHub repository to Jarvis. Existing bundle identifiers and preferences remain stable; existing notes folders are preserved. Both app bundles rebuilt successfully. All 328 native checks passed; Python discovery ran 188 tests with 186 passes and two optional skips. The renamed native app retained Camera, Microphone, Accessibility, and Screen Recording authorization in its readiness check.

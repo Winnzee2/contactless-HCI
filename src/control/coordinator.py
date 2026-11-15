@@ -67,6 +67,8 @@ class PendingNavigation:
 
 
 NAVIGATION_MESSAGES = {
+    "toggle_cheatsheet": {"start": "Toggling cheatsheet…", "sent": "Cheatsheet toggled. Say “How Jarvis” to toggle again.",
+                         "retry": "Say “How Jarvis” again to toggle the cheatsheet.", "phrase": "How Jarvis"},
     "switch_apps": {"start": "Switching applications…", "sent": "Cmd+Tab sent.",
                     "retry": "App switch was not confirmed. Say “switch windows” again.", "phrase": "switch windows"},
     "all_windows": {"start": "Toggling desktop window overview…", "sent": "Window overview toggle requested.",
@@ -451,7 +453,8 @@ class Coordinator:
                 self.worker_request = None
             search = self.pending.pop(self.request_id(event), None)
             if (search is None or not search.submitted or not self.armed or search.generation != self.generation
-                    or self.pointer is None or self.clock() - self.pointer_at > 0.6):
+                    or (event.get("action") != "toggle_cheatsheet"
+                        and (self.pointer is None or self.clock() - self.pointer_at > 0.6))):
                 return
             action = event.get("action")
             if (not isinstance(action, str) or action not in NAVIGATION_MESSAGES

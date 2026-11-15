@@ -183,6 +183,7 @@ private final class SensingRingView: NSView {
 }
 
 private final class VoiceCaptionView: NSView {
+    var cheatsheetExpanded = false
     var text = ""
     var heading = "SPEECH DETECTION"
     var detail = ""
@@ -225,7 +226,7 @@ private final class VoiceCaptionView: NSView {
         footer.move(to: CGPoint(x: 16, y: bounds.height - 123)); footer.line(to: CGPoint(x: bounds.width - 16, y: bounds.height - 123))
         NSColor.white.withAlphaComponent(0.1).setStroke(); footer.lineWidth = 0.5; footer.stroke()
         let handColor = handActive ? NSColor(srgbRed: 0.15, green: 0.9, blue: 1, alpha: 0.95) : muted
-        let cheatHeight: CGFloat = 250
+        let cheatHeight: CGFloat = cheatsheetExpanded ? 250 : 28
         handColor.setFill()
         NSBezierPath(ovalIn: CGRect(x: 16, y: cheatHeight + 16, width: 5, height: 5)).fill()
         ("HAND" as NSString).draw(at: CGPoint(x: 29, y: cheatHeight + 12),
@@ -287,8 +288,9 @@ private final class VoiceCaptionView: NSView {
         let rule = NSBezierPath()
         rule.move(to: CGPoint(x: 16, y: cheatHeight)); rule.line(to: CGPoint(x: bounds.width - 16, y: cheatHeight))
         NSColor.white.withAlphaComponent(0.15).setStroke(); rule.lineWidth = 0.5; rule.stroke()
-        ("USE CHEATSHEET" as NSString).draw(at: CGPoint(x: 16, y: cheatHeight - 22),
+        ((cheatsheetExpanded ? "HOW JARVIS / HIDE CHEATSHEET" : "HOW JARVIS / SHOW CHEATSHEET") as NSString).draw(at: CGPoint(x: 16, y: cheatHeight - 22),
             withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold), .foregroundColor: muted, .kern: 1])
+        guard cheatsheetExpanded else { return }
         let rows = [
             "Index finger → move pointer",
             "Thumb + middle → release to left-click",
@@ -330,6 +332,7 @@ final class SensingOverlay {
     private var cameraImage: CGImage?
     private var handVideoSize = CGSize(width: 1280, height: 720)
     private var suspensions = 0
+    private var cheatsheetExpanded = UserDefaults.standard.bool(forKey: "cheatsheetExpanded")
     private var hoverTimer: Timer?
 
     init() {
@@ -364,6 +367,13 @@ final class SensingOverlay {
         precondition(Thread.isMainThread)
         cameraImage = image
         handVideoSize = videoSize
+        refresh(time: time)
+    }
+
+    func toggleCheatsheet(time: TimeInterval) {
+        precondition(Thread.isMainThread)
+        cheatsheetExpanded.toggle()
+        UserDefaults.standard.set(cheatsheetExpanded, forKey: "cheatsheetExpanded")
         refresh(time: time)
     }
 
@@ -443,12 +453,12 @@ final class SensingOverlay {
         } else { ringPanel?.orderOut(nil) }
         if !transcript.isEmpty {
             let usable = screen.visibleFrame.insetBy(dx: 18, dy: 18)
-            let width = min(360, usable.width), height = min(586, usable.height)
+            let width = min(360, usable.width), height = min(cheatsheetExpanded ? 586 : 364, usable.height)
             let frame = CGRect(x: usable.maxX - width, y: usable.maxY - height, width: width, height: height)
             if captionPanel == nil { captionPanel = panel(view: VoiceCaptionView()) }
             captionPanel?.setFrame(frame, display: false)
             if let view = captionPanel?.contentView as? VoiceCaptionView {
-                view.frame = CGRect(origin: .zero, size: frame.size); view.text = transcript; view.heading = heading; view.detail = detail; view.handStatus = handStatus; view.handActive = handActive; view.handJoints = handJoints; view.videoSize = handVideoSize; view.cameraImage = cameraImage; view.needsDisplay = true
+                view.frame = CGRect(origin: .zero, size: frame.size); view.cheatsheetExpanded = cheatsheetExpanded; view.text = transcript; view.heading = heading; view.detail = detail; view.handStatus = handStatus; view.handActive = handActive; view.handJoints = handJoints; view.videoSize = handVideoSize; view.cameraImage = cameraImage; view.needsDisplay = true
             }
             updateHoverOpacity()
             if captionPanel?.isVisible == false { captionPanel?.orderFrontRegardless() }

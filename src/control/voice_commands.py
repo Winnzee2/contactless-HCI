@@ -19,6 +19,8 @@ def navigation_intent(transcript: str) -> Optional[str]:
     text = re.sub(r"(?: please|谢谢)$", "", text).strip()
     if re.fullmatch(r"(?:go |navigate )back(?: to (?:the )?(?:last|previous) page)?|last page|返回上一页|回到上一页", text):
         return "back"
+    if text == "how jarvis":
+        return "toggle_cheatsheet"
     if text in ("all windows", "show all windows", "show all the windows", "显示所有窗口"):
         return "all_windows"
     if text in ("switch windows", "switch apps", "switch applications"):
