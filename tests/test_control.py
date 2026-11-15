@@ -102,6 +102,16 @@ class TestCoordinator(unittest.TestCase):
         self.coordinator.handle(ack, source="native")
         self.assertEqual(len(self.native), count)
 
+    def test_cancelled_native_wait_cannot_overwrite_new_prompt(self):
+        self.submit()
+        self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"}, source="worker")
+        self.coordinator.handle({"type": "context_changed"}, source="native")
+        self.coordinator.handle({"type": "speech_start", "request_id": "b"}, source="native")
+        count = len(self.native)
+        self.coordinator.handle({"type": "error", "request_id": "a", "message": "Old wait expired"}, source="native")
+        self.assertEqual(len(self.native), count)
+        self.assertIn("b", self.coordinator.pending)
+
     def test_wrong_or_forged_action_cannot_confirm_movement(self):
         self.submit()
         self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"}, source="worker")
@@ -144,8 +154,7 @@ class TestCoordinator(unittest.TestCase):
         self.assertEqual(self.coordinator.last_target, "Safari")
 
     def test_invalidated_move_cannot_claim_success_after_reacquisition(self):
-        events = ({"type": "state", "armed": False}, {"type": "pointer", "tracked": False},
-                  {"type": "gesture_cancel", "source": "gesture"})
+        events = ({"type": "state", "armed": False}, {"type": "context_changed"})
         for event in events:
             with self.subTest(event=event):
                 self.setUp()
@@ -182,25 +191,60 @@ class TestCoordinator(unittest.TestCase):
         self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"})
         self.assertFalse(any(x["type"] == "voice_action" for x in self.native))
 
-    def test_tracking_loss_and_expiry_discard_selection(self):
+    def test_brief_hand_loss_defers_result_until_return(self):
         self.submit()
         self.coordinator.handle({"type": "pointer", "tracked": False})
-        self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"})
-        self.point()
-        self.submit()
-        self.now += 21
-        self.point()
-        self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"})
+        self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"}, source="worker")
         self.assertFalse(any(x["type"] == "voice_action" for x in self.native))
+        self.assertIsNotNone(self.coordinator.deferred_result)
+        self.now += 1
+        self.point()
+        self.assertEqual(sum(x["type"] == "voice_action" for x in self.native), 1)
+        self.point()
+        self.assertEqual(sum(x["type"] == "voice_action" for x in self.native), 1)
 
-    def test_no_hand_or_paused_never_starts_capture(self):
+    def test_deferred_result_timeout_and_deliberate_cancellation(self):
+        for end in ("timeout", "pause", "click", "context"):
+            with self.subTest(end=end):
+                self.setUp()
+                self.submit()
+                self.coordinator.handle({"type": "pointer", "tracked": False})
+                self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"}, source="worker")
+                if end == "timeout":
+                    self.now += 5.1
+                elif end == "pause":
+                    self.coordinator.handle({"type": "state", "armed": False})
+                elif end == "click":
+                    self.coordinator.handle({"type": "action", "source": "gesture", "action": "click"}, source="native")
+                else:
+                    self.coordinator.handle({"type": "context_changed"}, source="native")
+                self.point()
+                self.assertIsNone(self.coordinator.deferred_result)
+                self.assertFalse(any(x["type"] == "voice_action" for x in self.native))
+
+    def test_paused_never_starts_capture_but_tracking_gap_does(self):
         self.coordinator.handle({"type": "state", "armed": False})
         self.begin()
         self.assertEqual(self.coordinator.pending, {})
         self.coordinator.handle({"type": "state", "armed": True})
         self.now += 1
         self.begin()
-        self.assertEqual(self.coordinator.pending, {})
+        self.assertIn("a", self.coordinator.pending)
+
+    def test_screen_center_allows_speech_before_first_hand(self):
+        self.coordinator.last_pointer = None
+        self.coordinator.pointer = None
+        self.coordinator.handle({"type": "ready", "screen_width": 1000, "screen_height": 700})
+        self.begin()
+        self.assertEqual((self.coordinator.pending["a"].x, self.coordinator.pending["a"].y), (500, 350))
+
+    def test_navigation_without_worker_source_cannot_be_deferred(self):
+        self.submit()
+        self.coordinator.handle({"type": "pointer", "tracked": False})
+        self.coordinator.handle({"type": "navigation", "request_id": "a", "action": "close_window"})
+        self.point()
+        self.assertIsNone(self.coordinator.deferred_result)
+        self.assertFalse(any(x["type"] == "voice_action" for x in self.native))
 
     def test_outside_region_and_nonfinite_targets_filtered(self):
         self.begin()
@@ -350,8 +394,7 @@ class TestCoordinator(unittest.TestCase):
                     self.assertIsNone(self.coordinator.worker_request)
 
     def test_stale_navigation_is_cancelled_without_releasing_worker_backpressure_early(self):
-        for cancellation in ({"type": "state", "armed": False}, {"type": "pointer", "tracked": False},
-                             {"type": "gesture_cancel", "source": "gesture"}):
+        for cancellation in ({"type": "state", "armed": False}, {"type": "context_changed"}):
             with self.subTest(cancellation=cancellation):
                 self.setUp()
                 self.submit()
@@ -395,12 +438,12 @@ class TestCoordinator(unittest.TestCase):
         self.assertFalse(any(event["type"] == "voice_action" for event in self.native))
         self.assertIsNone(self.coordinator.worker_request)
 
-    def test_reacquiring_hand_does_not_revive_old_selection(self):
+    def test_reacquiring_hand_preserves_current_selection(self):
         self.submit()
         self.coordinator.handle({"type": "pointer", "tracked": False})
         self.point()
         self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"})
-        self.assertFalse(any(x["type"] == "voice_action" for x in self.native))
+        self.assertTrue(any(x["type"] == "voice_action" for x in self.native))
 
     def test_gesture_actions_cancel_screen_context(self):
         for action in ("click", "right_click", "double_click", "mission_control"):
@@ -411,23 +454,23 @@ class TestCoordinator(unittest.TestCase):
                 self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"}, source="worker")
                 self.assertFalse(any(x["type"] == "voice_action" for x in self.native))
 
-    def test_gesture_intent_cancels_capture_before_any_click(self):
+    def test_gesture_preparation_preserves_audio_and_capture(self):
         self.begin()
         self.coordinator.handle({"type": "gesture_cancel", "source": "gesture"}, source="native")
         self.coordinator.handle({"type": "targets", "request_id": "a", "targets": [self.target]}, source="native")
         self.coordinator.handle({"type": "speech_audio", "request_id": "a", "pcm_base64": "AAA=", "sample_rate": 16000}, source="native")
-        self.assertEqual(self.coordinator.pending, {})
-        self.assertEqual(self.worker, [])
+        self.assertIn("a", self.coordinator.pending)
+        self.assertEqual(len(self.worker), 1)
         self.assertFalse(any(x["type"] == "voice_action" for x in self.native))
 
-    def test_gesture_intent_cancels_result_but_waits_for_running_worker(self):
+    def test_gesture_preparation_preserves_result_and_worker_backpressure(self):
         self.submit()
         self.coordinator.handle({"type": "gesture_cancel", "source": "gesture"}, source="native")
         self.coordinator.handle({"type": "speech_start", "request_id": "b"}, source="native")
-        self.assertEqual(self.coordinator.pending, {})
+        self.assertIn("a", self.coordinator.pending)
         self.assertEqual(self.coordinator.worker_request, "a")
         self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"}, source="worker")
-        self.assertFalse(any(x["type"] == "voice_action" for x in self.native))
+        self.assertTrue(any(x["type"] == "voice_action" for x in self.native))
         self.coordinator.handle({"type": "speech_start", "request_id": "b"}, source="native")
         self.assertIn("b", self.coordinator.pending)
 
@@ -473,7 +516,7 @@ class TestCoordinator(unittest.TestCase):
 
     def test_canceled_model_request_must_finish_before_new_search(self):
         self.submit()
-        self.coordinator.handle({"type": "pointer", "tracked": False})
+        self.coordinator.handle({"type": "context_changed"})
         self.point()
         self.coordinator.handle({"type": "speech_start", "request_id": "b"})
         self.assertEqual(self.coordinator.pending, {})

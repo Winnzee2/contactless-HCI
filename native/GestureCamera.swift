@@ -128,6 +128,18 @@ func capturedVoiceTarget(_ candidates: [[String: Any]], label: String, point: CG
     return selected
 }
 
+/// Resolve by name after discovery, without binding to the old coordinates.
+/// Numbered choices deliberately bypass this: their displayed positions are fixed.
+func refreshedVoicePoint(_ candidates: [[String: Any]], label: String, bounds: CGRect) -> CGPoint? {
+    let key = screenTargetLabelKey(label)
+    guard !key.isEmpty else { return nil }
+    let matches = candidates.filter { screenTargetLabelKey($0["label"] as? String ?? "") == key }
+    guard matches.count == 1, let x = matches[0]["x"] as? NSNumber, let y = matches[0]["y"] as? NSNumber else { return nil }
+    let point = CGPoint(x: x.doubleValue, y: y.doubleValue)
+    guard bounds.contains(point), capturedVoiceTarget(matches, label: label, point: point) != nil else { return nil }
+    return point
+}
+
 // Energy-based endpointing only: semantic recognition is handled by Argmax.
 struct SpeechClipper {
     var rate: Double
@@ -216,6 +228,7 @@ func captureScreenRegion(_ region: CGRect) async throws -> CGImage {
 
 final class MicrophoneCapture {
     var onSpeechStart: (() -> Void)?
+    var onSpeechEnd: (() -> Void)?
     private let engine = AVAudioEngine()
     private let queue = DispatchQueue(label: "local.control.audio")
     private var armed = false
@@ -223,8 +236,12 @@ final class MicrophoneCapture {
     private var installed = false
     func setArmed(_ enabled: Bool) {
         queue.async {
+            guard self.armed != enabled else { return }
             self.armed = enabled
-            if let id = self.clipper.reset() { emit(["type": "speech_cancel", "request_id": id]) }
+            if let id = self.clipper.reset() {
+                emit(["type": "speech_cancel", "request_id": id])
+                DispatchQueue.main.async { self.onSpeechEnd?() }
+            }
         }
     }
     func start() throws {
@@ -250,6 +267,7 @@ final class MicrophoneCapture {
                     if event["type"] as? String == "speech_start" {
                         DispatchQueue.main.async { self.onSpeechStart?() }
                     }
+                    if event["type"] as? String == "speech_audio" { DispatchQueue.main.async { self.onSpeechEnd?() } }
                     emit(event)
                 }
             }
@@ -391,6 +409,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     let targetOverlay = TargetOverlay()
     let sensingOverlay = SensingOverlay()
     let tactileAudio = TactileAudio()
+    var speechInProgress = false
     var audioCueDeadline = -Double.infinity
     var soundEnabled = UserDefaults.standard.object(forKey: "soundEnabled") as? Bool ?? true
     let duplicateOverlay = DuplicateTargetOverlay()
@@ -430,8 +449,10 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
         mic.onSpeechStart = { [weak self] in
             guard let self = self, self.armed, !self.closing else { return }
+            self.speechInProgress = true
             self.sensingOverlay.showState("Listening…", time: now())
         }
+        mic.onSpeechEnd = { [weak self] in self?.speechInProgress = false }
         sensingOverlay.showState("Voice paused", time: now())
         requestCamera()
     }
@@ -482,7 +503,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: contextEvents) { [weak self] event in
             guard let self = self else { return event }
             let clicked = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type)
-            self.invalidateTargetContext(preservingPrompt: !clicked)
+            if clicked { self.cancelVoiceContext() }
             if clicked { self.targetLock.clear(); self.targetOverlay.hide() }
             guard event.type == .keyDown else { return event }
             if event.isARepeat { return event }
@@ -493,15 +514,19 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: contextEvents) { [weak self] event in
             let clicked = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type)
-            self?.invalidateTargetContext(preservingPrompt: !clicked)
+            if clicked { self?.cancelVoiceContext() }
             if clicked { self?.targetLock.clear(); self?.targetOverlay.hide() }
             if event.type == .keyDown && event.keyCode == 53 { self?.setArmed(false) }
         }
         for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
             contextObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.invalidateTargetContext(preservingPrompt: true)
+                self?.cancelVoiceContext()
             })
         }
+    }
+    func cancelVoiceContext() {
+        invalidateTargetContext()
+        emit(["type": "context_changed"])
     }
     func invalidateTargetContext(preservingPrompt: Bool = false) {
         if preservingPrompt && duplicateOverlay.choiceID != nil { return }
@@ -588,7 +613,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 do {
                     try self.mic.start()
                     self.audioStarted = true
-                    self.mic.setArmed(self.armed && self.tracked)
+                    self.mic.setArmed(self.armed)
                     self.refreshVoiceHint()
                 } catch { self.report("Microphone unavailable: \(error.localizedDescription)") }
             }
@@ -625,7 +650,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         targetLock.clear()
         targetOverlay.hide()
         invalidateTargetContext()
-        mic.setArmed(value && tracked)
+        mic.setArmed(value)
         stateLabel.stringValue = value ? "ENABLED · Index finger moves pointer · Escape pauses" : "PAUSED · Pointer and speech actions are disabled"
         toggleButton.title = value ? "Pause pointer" : "Enable pointer"
         refreshVoiceHint()
@@ -648,14 +673,14 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         UserDefaults.standard.set(soundEnabled, forKey: "soundEnabled")
     }
     func tactile(_ cue: TactileAudio.Cue) {
-        guard soundEnabled, tactileAudio.play(cue) else { return }
+        guard soundEnabled, !speechInProgress, tactileAudio.play(cue) else { return }
         // Avoid transcribing our own speaker output. Resume only if control is
-        // still enabled and the hand is available after the short cue tail.
+        // still enabled after the short cue tail. Never interrupt active speech.
         audioCueDeadline = now() + 0.25
         mic.setArmed(false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) { [weak self] in
             guard let self = self, !self.closing, now() >= self.audioCueDeadline else { return }
-            self.mic.setArmed(self.armed && self.tracked && !self.gestureBusy)
+            self.mic.setArmed(self.armed)
         }
     }
     func report(_ message: String) {
@@ -665,9 +690,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func setGestureBusy(_ busy: Bool) {
         guard busy != gestureBusy else { return }
         gestureBusy = busy
-        mic.setArmed(armed && tracked && !busy && now() >= audioCueDeadline)
         if busy {
-            invalidateTargetContext(preservingPrompt: true)
             emit(["type": "gesture_cancel", "source": "gesture"])
         }
     }
@@ -797,13 +820,11 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func loseHand() {
         sensingOverlay.updateCursor(nil, time: now())
         preview.rawPoint = nil; preview.joints = [:]
-        if tracked { mic.setArmed(false) }
         rapidClicks.reset(); scrollPinch.reset(); leftPinch.reset(); rightPinch.reset()
         pinchApproach.reset(); pinchPoint = nil; gestureBusy = false
         lastRawPoint = nil
         pointer = nil
         if tracked {
-            invalidateTargetContext(preservingPrompt: true)
             emit(["type": "pointer", "tracked": false, "x": 0, "y": 0])
             tracked = false
         }
@@ -867,6 +888,27 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         seenIDs.append(instruction.requestID)
         if seenIDs.count > 128 { seenIDs.removeFirst() }
         if instruction.action == "none" { return }
+        Task { @MainActor in
+            let deadline = now() + 5
+            guard await waitForVoiceHand(instruction.requestID, until: deadline) else { return }
+            applyVoiceInstruction(instruction, json: json, deadline: deadline)
+        }
+    }
+    @MainActor
+    func waitForVoiceHand(_ id: String, until deadline: Double) async -> Bool {
+        while armed && !closing && currentCapture(id) != nil &&
+            (!tracked || !acceptsVoiceTarget || now() - lastHandTime > 0.4) && now() < deadline {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        guard armed, !closing, tracked, acceptsVoiceTarget, now() - lastHandTime <= 0.4,
+              currentCapture(id) != nil, now() < deadline else {
+            emit(["type": "error", "request_id": id,
+                  "message": "Speech recognized; action expired or context was deliberately changed."])
+            return false
+        }
+        return true
+    }
+    func applyVoiceInstruction(_ instruction: VoiceAction, json: [String: Any], deadline: Double) {
         if ["back", "tab_left", "tab_right", "close_tab", "close_window", "change_window"].contains(instruction.action) {
             performVoiceNavigation(instruction, choiceID: json["choice_id"] as? String)
             return
@@ -885,11 +927,34 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
                              label: json["label"] as? String ?? "Selected target")
             return
         }
-        performVoiceMove(instruction, point: point, label: json["label"] as? String ?? "Selected target")
+        guard let label = json["label"] as? String,
+              capturedVoiceTarget(capture.targets, label: label, point: point) != nil else { return }
+        sensingOverlay.suspend()
+        Task { @MainActor in
+            defer { sensingOverlay.resume(time: now()) }
+            // If tracking drops during discovery, wait and refresh again so a
+            // scrolling page never receives coordinates from before the wait.
+            while await waitForVoiceHand(instruction.requestID, until: deadline) {
+                let fresh = await discoverTargets(region: capture.region, pointer: point)
+                guard currentCapture(instruction.requestID) != nil else { return }
+                if !tracked || !acceptsVoiceTarget || now() - lastHandTime > 0.4 { continue }
+                guard let refreshedPoint = refreshedVoicePoint(fresh, label: label, bounds: screen) else {
+                    emit(["type": "error", "request_id": instruction.requestID,
+                          "message": "Heard \(label). It is no longer uniquely visible; name the target again."])
+                    return
+                }
+                performVoiceMove(instruction, point: refreshedPoint, label: label)
+                return
+            }
+        }
     }
     func performVoiceMove(_ instruction: VoiceAction, point: CGPoint, label: String) {
         guard currentCapture(instruction.requestID) != nil else { return }
-        guard armed, tracked, acceptsVoiceTarget, now() - lastHandTime <= 0.4, AXIsProcessTrusted(), let anchor = lastRawPoint else { return }
+        guard armed, tracked, acceptsVoiceTarget, now() - lastHandTime <= 0.4, AXIsProcessTrusted(), let anchor = lastRawPoint else {
+            emit(["type": "error", "request_id": instruction.requestID,
+                  "message": "Speech recognized, but hand control is unavailable. Show your hand and try again."])
+            return
+        }
         rapidClicks.reset()
         let lockedAt = now()
         targetLock.hold(point, anchor: anchor, time: lockedAt); pointer = point
@@ -961,7 +1026,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func showChoices(_ json: [String: Any]) {
         guard let id = json["choice_id"] as? String, !id.isEmpty, id.count <= 100 else { return }
         func reject() { emit(["type": "choices_cancel", "choice_id": id]) }
-        guard armed, tracked, acceptsVoiceTarget, now() - lastHandTime <= 0.4,
+        guard armed,
               let requestID = json["request_id"] as? String, requestID == id,
               let capture = currentCapture(requestID), capture.choiceID == nil,
               let raw = json["options"] as? [[String: Any]], (2...100).contains(raw.count),
@@ -1003,7 +1068,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             speechLabel.stringValue = message
             emit(["type": "error", "request_id": id, "message": message])
         }
-        guard !id.isEmpty, id.count <= 128, armed, tracked, acceptsVoiceTarget,
+        guard !id.isEmpty, id.count <= 128, armed,
               let x = json["x"] as? NSNumber, let y = json["y"] as? NSNumber,
               CFGetTypeID(x) != CFBooleanGetTypeID(), CFGetTypeID(y) != CFBooleanGetTypeID(),
               x.doubleValue.isFinite, y.doubleValue.isFinite,
@@ -1171,6 +1236,20 @@ func selfTest() -> Bool {
     let nativeTarget: [String: Any] = ["id": "native", "label": "Reports",
                                       "x": nativeRect.midX, "y": nativeRect.midY,
                                       "width": nativeRect.width, "height": nativeRect.height]
+    var movedTarget = nativeTarget
+    movedTarget["x"] = 600.0
+    check(refreshedVoicePoint([movedTarget], label: "Reports", bounds: bounds)?.x == 600,
+          "Fresh named target follows layout changes")
+    check(refreshedVoicePoint([], label: "Reports", bounds: bounds) == nil,
+          "Disappeared target never uses old coordinates")
+    check(refreshedVoicePoint([nativeTarget, movedTarget], label: "Reports", bounds: bounds) == nil,
+          "New ambiguity never picks an arbitrary target")
+    check(refreshedVoicePoint([movedTarget], label: " reports! ", bounds: bounds)?.x == 600,
+          "Fresh lookup uses the same canonical labels")
+    var invalidFreshTarget = movedTarget
+    invalidFreshTarget["x"] = true
+    check(refreshedVoicePoint([invalidFreshTarget], label: "Reports", bounds: bounds) == nil,
+          "Fresh lookup rejects malformed geometry")
     check(capturedVoiceTarget([nativeTarget], label: "Reports", point: nativePoint)?["id"] as? String == "native",
           "Numbered movement resolves raw CGFloat geometry from the native capture")
     let encodedTarget = try! JSONSerialization.data(withJSONObject: nativeTarget)

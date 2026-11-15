@@ -66,7 +66,7 @@ With a browser window active, say **“tab left”** or **“tab right”** to s
 The fist-to-Mission-Control gesture is disabled. Hand tracking uses the full camera frame at up to 30 updates per second, per-landmark adaptive smoothing, and confidence hysteresis. Brief tracking gaps hold the current state for up to 150 ms without generating actions; longer gaps reset gesture recognition.
 
 
-Pausing or losing reliable hand tracking cancels an unfinished gesture and clears the target lock immediately, including during the 3-second protection period. Open your fingers before starting another pinch after a pause or tracking loss.
+Pausing cancels unfinished gestures and voice actions. Losing reliable hand tracking resets unfinished gestures but preserves speech and displayed target prompts. Open your fingers before starting another pinch after a pause or tracking loss.
 
 Numbered choices keep their original numbers and search area while you move your hand. A click, pause, explicit cancel, navigation action, or timeout clears them. Element changes, scrolling, typing, and brief tracking loss preserve the original numbered positions. Invalid or out-of-range numbers do not move the pointer or restart the 15-second countdown.
 
@@ -120,7 +120,7 @@ The current build also passed **five actual target-selection checks with Wi-Fi o
 
 ## Targeting Scope and Current Limitations
 
-- Targets come from a region of approximately **720 × 420** screen points around the pointer when speech begins. Move near the target first.
+- Targets are discovered across the primary screen. The pointer position helps rank nearby matches.
 - macOS Accessibility supplies visible names and bounds for native controls, browser tabs, links, menus, folder icons, and named toolbar icons. Local Vision OCR supplies visible text when accessibility labels are unavailable. Individual word geometry avoids aiming between neighboring labels.
 - The scanner checks visibility, keeps bounded traversal times, and combines accessibility and OCR readings of the same control. The demo board is an optional test fixture; no app names or website selectors are required for discovery.
 - The control layer narrows the candidate list to visible labels supported by the spoken name, preserving their original labels and IDs and every matching duplicate. This prevents unrelated screen instructions from distracting Bonsai, including on the offline target board. The filtering uses generic English and Chinese name matching, not a list of supported websites or target names.
@@ -182,3 +182,11 @@ Natural requests include “Could you take me to the Codex tab please,” “帮
 Say **“close tab”** to send Command-W to the current browser tab. Closing the final tab follows the browser’s normal window behavior. The former “alt tab” alias has been removed; use “tab left” or “tab right” for browser tabs. Control must be enabled, the browser active, and your hand visible. These commands run fully offline.
 
 Say **“close window”** to press the active app window’s close button, or **“change window”** to raise another non-minimized window of the same app. These use macOS Accessibility window actions, not browser-tab shortcuts. Apps must expose accessible windows, and normal unsaved-document dialogs remain under your control. The persistent top-right speech panel uses monospaced typography, a translucent charcoal background, muted status text, and red recognized speech.
+
+### Speech continuity
+
+While control is enabled, listening is independent of hand tracking and ordinary screen activity. Hover effects, animations, typing, scrolling, pinch preparation, and brief tracking gaps do not discard the recording. Sound cues are suppressed during active speech.
+
+A named target is checked again against the current screen before the pointer moves. If it moved, the pointer follows its refreshed location; if it disappeared or became ambiguous, the app asks you to name it again. Already displayed numbered choices remain anchored to their original positions and keep their original 15-second deadline.
+
+If recognition finishes while your hand is missing, the app waits up to five seconds for it to return before applying the result. A real click, switching apps or Spaces, pausing, or expiration cancels pending actions. No unfinished requests are replayed later. Voice still never clicks a target automatically.

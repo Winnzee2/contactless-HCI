@@ -184,6 +184,7 @@ private final class SensingRingView: NSView {
 private final class VoiceCaptionView: NSView {
     var text = ""
     var heading = "SPEECH DETECTION"
+    var detail = ""
     override var isOpaque: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func draw(_ dirtyRect: NSRect) {
@@ -207,10 +208,13 @@ private final class VoiceCaptionView: NSView {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
         paragraph.lineSpacing = 3
-        (text as NSString).draw(in: CGRect(x: 16, y: 12, width: bounds.width - 32, height: 44),
+        (text as NSString).draw(in: CGRect(x: 16, y: 38, width: bounds.width - 32, height: 44),
             withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 14, weight: .medium),
                              .foregroundColor: recognized ? red : NSColor.white.withAlphaComponent(0.85),
                              .paragraphStyle: paragraph])
+        (detail as NSString).draw(in: CGRect(x: 16, y: 9, width: bounds.width - 32, height: 25),
+            withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 9, weight: .regular),
+                             .foregroundColor: muted, .paragraphStyle: paragraph])
     }
 }
 
@@ -222,6 +226,7 @@ final class SensingOverlay {
     private var point: CGPoint?
     private var transcript = "Voice paused"
     private var heading = "SPEECH DETECTION"
+    private var detail = ""
     private var suspensions = 0
 
     private func panel(view: NSView) -> TargetOverlayPanel {
@@ -245,20 +250,22 @@ final class SensingOverlay {
         precondition(Thread.isMainThread)
         let clean = text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
         guard !clean.isEmpty, time.isFinite else { return }
-        transcript = String(clean.prefix(300)); heading = "VOICE RECOGNIZED"
+        transcript = String(clean.prefix(300)); heading = "VOICE RECOGNIZED"; detail = "Matching visible targets…"
         refresh(time: time)
     }
     func showState(_ text: String, time: TimeInterval) {
         precondition(Thread.isMainThread)
         // Keep the recognized words visible while matching/action statuses change.
         if text.hasPrefix("Listening") || heading != "VOICE RECOGNIZED" || text == "Voice paused" || text.hasPrefix("Ready") {
-            transcript = String(text.prefix(300)); heading = "SPEECH DETECTION"
-            refresh(time: time)
+            transcript = String(text.prefix(300)); heading = "SPEECH DETECTION"; detail = ""
+        } else {
+            detail = String(text.prefix(300))
         }
+        refresh(time: time)
     }
     func clear() {
         precondition(Thread.isMainThread)
-        point = nil; transcript = "Voice paused"; heading = "SPEECH DETECTION"
+        point = nil; transcript = "Voice paused"; heading = "SPEECH DETECTION"; detail = ""
         ringPanel?.orderOut(nil)
         refresh(time: ProcessInfo.processInfo.systemUptime)
     }
@@ -293,12 +300,12 @@ final class SensingOverlay {
         } else { ringPanel?.orderOut(nil) }
         if !transcript.isEmpty {
             let usable = screen.visibleFrame.insetBy(dx: 18, dy: 18)
-            let width = min(320, usable.width), height = min(98, usable.height)
+            let width = min(320, usable.width), height = min(124, usable.height)
             let frame = CGRect(x: usable.maxX - width, y: usable.maxY - height, width: width, height: height)
             if captionPanel == nil { captionPanel = panel(view: VoiceCaptionView()) }
             captionPanel?.setFrame(frame, display: false)
             if let view = captionPanel?.contentView as? VoiceCaptionView {
-                view.frame = CGRect(origin: .zero, size: frame.size); view.text = transcript; view.heading = heading; view.needsDisplay = true
+                view.frame = CGRect(origin: .zero, size: frame.size); view.text = transcript; view.heading = heading; view.detail = detail; view.needsDisplay = true
             }
             if captionPanel?.isVisible == false { captionPanel?.orderFrontRegardless() }
         } else { captionPanel?.orderOut(nil) }

@@ -81,7 +81,7 @@ NAVIGATION_MESSAGES = {
 }
 
 
-NATIVE_EVENTS = frozenset({"ready", "state", "pointer", "speech_start", "speech_cancel", "speech_audio", "targets", "error", "action", "gesture_cancel", "choices_shown", "choices_cancel"})
+NATIVE_EVENTS = frozenset({"ready", "state", "pointer", "speech_start", "speech_cancel", "speech_audio", "targets", "error", "action", "gesture_cancel", "choices_shown", "choices_cancel", "context_changed"})
 WORKER_EVENTS = frozenset({"transcript", "selection", "navigation", "error"})
 
 
@@ -103,6 +103,9 @@ class Coordinator:
         self.pending_move: Optional[PendingMove] = None
         self.pending_navigation: Optional[PendingNavigation] = None
         self.worker_request = None
+        self.deferred_result = None
+        self.deferred_until = 0.0
+        self.last_pointer = None
         self.last_transcript = ""
         self.last_target = ""
         self.region_width = 720
@@ -119,6 +122,7 @@ class Coordinator:
 
     def invalidate(self, preserve_choices=False):
         """Invalidate results permanently, including after hand reacquisition."""
+        self.deferred_result = None
         self.generation += 1
         self.pending.clear()
         self.pending_move = None
@@ -205,7 +209,11 @@ class Coordinator:
         now = self.clock()
         if self.pointer is not None and now - self.pointer_at > 0.6:
             self.pointer = None
-            self.invalidate(preserve_choices=True)
+        if self.deferred_result is not None and now >= self.deferred_until:
+            event = self.deferred_result
+            self.deferred_result = None
+            self.pending.pop(self.request_id(event), None)
+            self.status("Speech recognized, but no hand returned within 5 seconds. Show your hand and try again.")
         if self.choices is not None and now >= self.choices.expires_at:
             self.invalidate()
             self.status("Numbered choices expired. Say the target name again.")
@@ -229,6 +237,17 @@ class Coordinator:
             if kind not in allowed:
                 return
         self.expire()
+        if (kind == "selection" and source in (None, "worker")) or (kind == "navigation" and source == "worker"):
+            search = self.pending.get(self.request_id(event))
+            if (search is not None and search.submitted and self.armed and search.generation == self.generation
+                    and (self.pointer is None or self.clock() - self.pointer_at > 0.6)):
+                if self.worker_request == search.request_id:
+                    self.worker_request = None
+                if self.deferred_result is None:
+                    self.deferred_until = min(search.started_at + self.expiry, self.clock() + 5)
+                self.deferred_result = dict(event)
+                self.status("Waiting for your hand (up to 5 seconds).")
+                return
         if kind == "ready":
             values = (event.get("screen_x", 0), event.get("screen_y", 0),
                       event.get("screen_width"), event.get("screen_height"))
@@ -243,9 +262,13 @@ class Coordinator:
             if event.get("tracked") is True and all(self.number(event.get(k)) for k in ("x", "y")):
                 self.pointer = (event["x"], event["y"])
                 self.pointer_at = self.clock()
+                self.last_pointer = self.pointer
+                if self.deferred_result is not None:
+                    result = self.deferred_result
+                    self.deferred_result = None
+                    self.handle(result, source="worker")
             else:
                 self.pointer = None
-                self.invalidate(preserve_choices=True)
         elif kind == "action":
             if event.get("source") == "gesture":
                 # Clicks and Mission Control can change the visible context
@@ -266,10 +289,12 @@ class Coordinator:
                     self.pending_navigation = None
                     self.status(NAVIGATION_MESSAGES[navigation.action]["sent"])
         elif kind == "gesture_cancel":
-            if event.get("source") == "gesture":
-                # Native announces gesture intent before a held pinch or fist
-                # completes, so an old model result cannot interrupt it.
-                self.invalidate(preserve_choices=True)
+            # Pinch preparation is not a click. Native waits for its release
+            # before applying a result; speech and the displayed choices survive.
+            pass
+        elif kind == "context_changed":
+            self.invalidate()
+            self.status("Context changed by a click or app switch. Speak again in the new context.")
         elif kind == "choices_shown":
             if self.choices is not None and event.get("choice_id") == self.choices.choice_id:
                 self.choices = replace(self.choices, acknowledged=True)
@@ -280,7 +305,7 @@ class Coordinator:
                 self.status("Numbered choices cleared. Say the target name again.")
         elif kind == "speech_start":
             key = self.request_id(event)
-            if (not self.voice_ready or not self.armed or self.pointer is None or self.clock() - self.pointer_at > 0.6
+            if (not self.voice_ready or not self.armed or (self.last_pointer is None and self.screen is None)
                     or not isinstance(key, str) or not key or len(key) > 100):
                 return
             # One search at a time; speech never queues up delayed mouse actions.
@@ -295,7 +320,8 @@ class Coordinator:
             # finishes asynchronously while its screen check is in flight.
             self.pending_move = None
             self.pending_navigation = None
-            x, y = (choice.x, choice.y) if choice is not None else self.pointer
+            x, y = (choice.x, choice.y) if choice is not None else (self.pointer or self.last_pointer or
+                (self.screen[0] + self.screen[2] / 2, self.screen[1] + self.screen[3] / 2))
             region = choice.region if choice is not None else self._region(x, y)
             self.pending[key] = Search(key, self.generation, x, y, self.clock(), region,
                                        choice_id=choice.choice_id if choice is not None else None)
@@ -467,6 +493,14 @@ class Coordinator:
             self.send_native(command)
         elif kind == "error":
             key = self.request_id(event)
+            current_ids = set(self.pending)
+            current_ids.update(item.request_id for item in (self.pending_move, self.pending_navigation) if item is not None)
+            if key is not None and key not in current_ids:
+                if key == self.worker_request:
+                    self.worker_request = None
+                return  # A cancelled asynchronous operation must not overwrite a newer prompt.
+            if self.deferred_result is not None and (key is None or key == self.request_id(self.deferred_result)):
+                self.deferred_result = None
             if self.pending_move is not None and (key is None or key == self.pending_move.request_id):
                 self.pending_move = None
             if self.pending_navigation is not None and (key is None or key == self.pending_navigation.request_id):

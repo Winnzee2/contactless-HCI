@@ -1,5 +1,14 @@
 # 离线验证记录与复现
 
+## Speech Continuity Across Screen Changes
+
+On November 15, 2026, microphone recording was separated from transient hand tracking and gesture preparation. Repeated microphone arming is now idempotent. Typing and scrolling no longer invalidate recognition; deliberate clicks, app/Space switches, pause, and expiration still cancel pending actions. Recognition results wait briefly for hand reacquisition, and late errors from cancelled work cannot replace a newer prompt. Named targets refresh their location before movement, while numbered targets retain their displayed positions.
+
+Validation: 165 Python tests passed, with two optional integration tests skipped (167 discovered). All 308 native self-test checks passed, including moved, disappeared, newly ambiguous, and malformed refreshed targets. An isolated AppKit/native probe verified that a recording survives repeated arming, emits complete audio, and still stops on pause; pinch preparation, tracking loss, typing, and scrolling preserve context, while a local synthetic click invalidates it. These synthetic events were delivered only within the probe, not posted to user applications.
+
+The updated speech panel keeps red recognized text plus a separate monospaced status line. Its rendered image was inspected, and the preview checked click-through behavior, unchanged application focus, persistence through capture/tracking loss, and paused display. Artifacts are in ignored `.build/verification/voice-continuity/`. These checks do not substitute for a new physical camera/microphone acceptance test; no new Wi-Fi-off trial was performed for this change. Runtime processing remains local.
+
+
 ## App Window Commands and Monospaced Speech Panel
 
 On November 15, 2026, “alt tab” and its transcription alias were removed. “Close window” resolves the active Accessibility window and presses its close button; “change window” raises another non-minimized standard window in the same app. Foreground PID and focused window are rechecked before acting. Browser “close tab” remains separate.
