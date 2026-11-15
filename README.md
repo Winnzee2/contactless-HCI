@@ -43,7 +43,7 @@ You may need to quit and restart after changing permissions. The app starts **PA
 | Pinch thumb + ring finger | Right click |
 | Clench a fist briefly, then fully open your hand | Show the current desktop's windows in Mission Control |
 | Name a nearby control, such as “Codex” or “open Reports” | Argmax transcription → accessibility labels and local OCR → Bonsai selection → pointer positioning; no click |
-| Say **“last page”** | Go back one page in the active browser, without moving or clicking the pointer |
+| Say **“last page”** | Go back to the previous page in the active browser or the previously visited folder in Finder, without moving or clicking the pointer |
 | Say “two,” “number two,” or “第二个” while numbered circles are visible | Select target 2, check its current position, and move the pointer there; no click |
 | Say “cancel” while numbered circles are visible | Dismiss the choices |
 | Move your finger during the first 3 seconds after targeting | Keep the pointer on the target while you prepare a pinch |
@@ -54,7 +54,7 @@ You may need to quit and restart after changing permissions. The app starts **PA
 
 A single click, double-click, or right click releases the target lock. A held middle-finger pinch sends one double-click without an extra preliminary single click; holding longer does not repeat it. The pointer stays at the pinch position until you release.
 
-With control enabled and your hand visible, say **“last page”** to use the active browser's Back command. The phrase works without a readable screen target and clears any numbered choices or pointer lock. It must be the complete utterance; a sentence mentioning “last page” does not navigate. Recognition and command handling stay local. Offline page content must already be available locally or in the browser cache. The browser must support its standard macOS Command-[ Back shortcut; without a previous history entry, nothing changes.
+With control enabled and your hand visible, say **“last page”** to use Back in the active browser or Finder window. In Finder, it returns to the previously visited folder in that window's navigation history. The phrase works without a readable screen target and clears any numbered choices or pointer lock. It must be the complete utterance; a sentence mentioning “last page” does not navigate. Recognition and command handling stay local. Local folders remain available without Wi-Fi; offline web content must already be available locally or in the browser cache. The command uses the standard macOS Command-[ Back shortcut; without a previous history entry, nothing changes.
 
 For Mission Control, hold a closed fist for about **0.35 seconds**, then open your hand within **2 seconds** and keep it open briefly. The gesture cancels pending voice targeting and does not send a mouse click. A short cooldown prevents repeated triggers. Both new gestures run locally and also work in `--gesture-only` mode.
 

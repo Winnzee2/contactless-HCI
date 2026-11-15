@@ -1,6 +1,14 @@
 # 离线验证记录与复现
 
-The [cross-application verification](CROSS_APP.md) includes successful Wi-Fi-off target-selection checks in Finder, TextEdit, and Safari. After adding explicit browser Back navigation, the suite passes **148 Python tests and 203 native checks**. Earlier human-input and component records retain their original scope; they do not substitute for physical acceptance of the new gestures or voice flows.
+The [cross-application verification](CROSS_APP.md) includes successful Wi-Fi-off target-selection checks in Finder, TextEdit, and Safari. After extending Back navigation to Finder, the suite passes **148 Python tests and 213 native checks**. Earlier human-input and component records retain their original scope; they do not substitute for physical acceptance of the new gestures or voice flows.
+
+## Finder Folder Navigation
+
+On November 14, 2026 (Eastern time), the same exact “last page” command was extended to Finder. The native action accepts Finder's exact bundle identifier as well as registered browsers, retaining the fixed Back shortcut and the original recording's foreground-context checks. In Finder, this returns to the previously visited folder in that window's history.
+
+With **Wi-Fi Off**, a dedicated Finder window navigated between two sibling test folders. Locally synthesized “Last page” audio passed through real Argmax, the coordinator, and the production native controller. Finder's actual window target changed from `SecondFolder` back to `FirstFolder`, verifying folder history rather than parent-folder traversal. The test simulated hand freshness and did not use the camera or microphone. The original cursor position and Wi-Fi state were restored, and the temporary Finder window was closed afterward.
+
+All **148 Python tests**, including real Argmax integration, and **213 native checks** passed. New native checks cover Finder without browser registration, retained browser support, and rejection of unrelated or lookalike app identifiers. Local evidence is in ignored `.build/verification/folder-back/`: `pipeline.json`, `last-events.json`, `python-tests.txt`, `native-tests.json`, and `wifi.json`.
 
 ## “Last Page” Browser Navigation
 

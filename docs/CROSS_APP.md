@@ -1,6 +1,6 @@
 # Cross-Application Targeting
 
-Local Control uses system mouse events and local screen discovery. It does not depend on the demo board, website selectors, browser JavaScript, a browser extension, or an application whitelist.
+Local Control uses system mouse events and local screen discovery. Target discovery does not depend on the demo board, website selectors, browser JavaScript, a browser extension, or an application whitelist.
 
 Point near the intended control, say its visible label or accessible name, and pinch to click after the pointer reaches it. Briefly pinch thumb and middle finger, then release for one left click; hold that pinch for about 0.7 seconds for one double-click. Thumb and ring finger perform a right click. The pointer stays at the pinch position while you hold it, and a held gesture fires only once until released.
 
@@ -8,7 +8,7 @@ A cyan ring and a click-through caption identify the voice target. The caption c
 
 When several nearby targets match the same spoken name, each gets a numbered circle. The pointer stays where it is until you say a displayed number, such as “two,” “number two,” or “第二个.” The selected target is checked again before the pointer moves, then receives the usual three-second hold. You still use a hand gesture to click.
 
-Clench a fist briefly, then fully open your hand to display the current desktop's windows in Mission Control. Starting a pinch or fist gesture invalidates any pending voice result so that an old result cannot move the pointer during the action. Voice cannot double-click or open Mission Control. The explicit phrase “last page” sends Back to the active browser; naming a target continues to position the pointer without clicking.
+Clench a fist briefly, then fully open your hand to display the current desktop's windows in Mission Control. Starting a pinch or fist gesture invalidates any pending voice result so that an old result cannot move the pointer during the action. Voice cannot double-click or open Mission Control. The explicit phrase “last page” sends Back to the active browser or Finder window. In Finder, it returns to the previously visited folder in that window's navigation history. Naming a target continues to position the pointer without clicking.
 
 ## Discovery and Selection
 

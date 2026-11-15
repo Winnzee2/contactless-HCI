@@ -30,9 +30,9 @@ func makePointerClickEvents(_ action: PointerClickAction, at point: CGPoint) -> 
     return events
 }
 
-/// Construct the standard macOS browser Back shortcut without posting it.
-/// The controller must bind the request to the still-active browser before use.
-func makeBrowserBackEvents() -> [CGEvent]? {
+/// Construct the standard macOS Finder/browser Back shortcut without posting it.
+/// The controller must bind the request to the still-active application before use.
+func makeHistoryBackEvents() -> [CGEvent]? {
     // kVK_ANSI_LeftBracket from the local HIToolbox SDK. No transcript or model
     // output can supply a key code, modifier, URL, or arbitrary keyboard action.
     let leftBracket: CGKeyCode = 0x21
@@ -50,10 +50,8 @@ private func registeredBrowserMatches(_ identifier: String?, handlers: Set<Strin
     return handlers.contains(identifier)
 }
 
-/// Consult only the local application registry. Looking up handlers does not
-/// open these inert URLs, access the network, or inspect browser history.
-func isBrowserApplication(bundleIdentifier: String?) -> Bool {
-    guard let identifier = bundleIdentifier, !identifier.isEmpty else { return false }
+/// Looking up handlers does not open URLs, access the network, or inspect history.
+private func registeredBrowserIdentifiers() -> Set<String> {
     var handlers = Set<String>()
     for scheme in ["https", "http"] {
         guard let url = URL(string: "\(scheme)://example.invalid/") else { continue }
@@ -61,7 +59,25 @@ func isBrowserApplication(bundleIdentifier: String?) -> Bool {
             if let bundleID = Bundle(url: application)?.bundleIdentifier { handlers.insert(bundleID) }
         }
     }
-    return registeredBrowserMatches(identifier, handlers: handlers)
+    return handlers
+}
+
+func isBrowserApplication(bundleIdentifier: String?) -> Bool {
+    guard let identifier = bundleIdentifier, !identifier.isEmpty else { return false }
+    return registeredBrowserMatches(identifier, handlers: registeredBrowserIdentifiers())
+}
+
+private func historyBackMatches(_ identifier: String?, browserHandlers: Set<String>) -> Bool {
+    guard let identifier = identifier, !identifier.isEmpty else { return false }
+    return identifier == "com.apple.finder" || registeredBrowserMatches(identifier, handlers: browserHandlers)
+}
+
+/// Finder uses the same Back shortcut for folder history. Other applications
+/// must be locally registered web browsers; names resembling Finder do not qualify.
+func supportsHistoryBack(bundleIdentifier: String?) -> Bool {
+    guard let identifier = bundleIdentifier, !identifier.isEmpty else { return false }
+    let handlers = identifier == "com.apple.finder" ? Set<String>() : registeredBrowserIdentifiers()
+    return historyBackMatches(identifier, browserHandlers: handlers)
 }
 
 func showMissionControl(completion: @escaping (Error?) -> Void) {
@@ -106,13 +122,13 @@ func desktopActionSelfTest() -> (tests: Int, failures: [String]) {
     check((single + right + double).allSatisfy { $0.location == point }, "Every click edge uses the same captured pointer point")
     check(makePointerClickEvents(.double, at: CGPoint(x: Double.nan, y: 0)) == nil, "Nonfinite horizontal coordinates are rejected")
     check(makePointerClickEvents(.left, at: CGPoint(x: 0, y: Double.infinity)) == nil, "Nonfinite vertical coordinates are rejected")
-    let back = makeBrowserBackEvents() ?? []
-    check(back.map(\.type) == [.keyDown, .keyUp], "Browser Back is exactly one keyboard down/up pair")
+    let back = makeHistoryBackEvents() ?? []
+    check(back.map(\.type) == [.keyDown, .keyUp], "History Back is exactly one keyboard down/up pair")
     check(back.allSatisfy { $0.getIntegerValueField(.keyboardEventKeycode) == 0x21 },
-          "Browser Back uses only the fixed left-bracket key")
-    check(back.allSatisfy { $0.flags == .maskCommand }, "Browser Back has Command and no extra modifiers")
+          "History Back uses only the fixed left-bracket key")
+    check(back.allSatisfy { $0.flags == .maskCommand }, "History Back has Command and no extra modifiers")
     check(back.allSatisfy { $0.getIntegerValueField(.keyboardEventAutorepeat) == 0 },
-          "Browser Back never requests keyboard repeat")
+          "History Back never requests keyboard repeat")
     let handlers: Set<String> = ["com.apple.Safari", "org.example.NewBrowser"]
     check(registeredBrowserMatches("com.apple.Safari", handlers: handlers), "A registered browser is accepted")
     check(registeredBrowserMatches("org.example.NewBrowser", handlers: handlers),
@@ -121,5 +137,15 @@ func desktopActionSelfTest() -> (tests: Int, failures: [String]) {
     check(!registeredBrowserMatches(nil, handlers: handlers), "An unidentified foreground application is rejected")
     check(!registeredBrowserMatches("", handlers: handlers), "An empty application identifier is rejected")
     check(!registeredBrowserMatches("com.apple.Safari", handlers: []), "An empty registry cannot authorize Back")
+    check(historyBackMatches("com.apple.finder", browserHandlers: []),
+          "Finder supports folder history without being registered as a web browser")
+    check(historyBackMatches("com.apple.Safari", browserHandlers: handlers), "Browser history support remains available")
+    check(historyBackMatches("org.example.NewBrowser", browserHandlers: handlers), "Custom registered browsers retain Back support")
+    for identifier: String? in [nil, "", "com.apple.TextEdit", "com.apple.finder.copy", "org.example.finder", "com.apple.Finder"] {
+        check(!historyBackMatches(identifier, browserHandlers: handlers),
+              "Missing IDs, unrelated apps, and Finder lookalikes are rejected")
+    }
+    check(!historyBackMatches("com.apple.Safari", browserHandlers: []),
+          "Adding Finder support does not authorize an unregistered browser")
     return (tests, failures)
 }

@@ -596,7 +596,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         } else if !audioStarted {
             speechLabel.stringValue = audioStarting ? "Microphone is preparing locally." : "Microphone is not ready. Gesture control remains available."
         } else if armed {
-            speechLabel.stringValue = "Keep your hand visible. Say a label to point, or say last page to go back in the browser. Gestures click."
+            speechLabel.stringValue = "Keep your hand visible. Say a label to point, or say last page to go back in Finder or your browser. Gestures click."
         } else {
             speechLabel.stringValue = "Voice is paused. Enable pointer, show your hand, then say a visible label."
         }
@@ -830,28 +830,28 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
         guard armed, tracked, acceptsVoiceTarget, now() - lastHandTime <= 0.4, AXIsProcessTrusted(),
               let capture = currentCapture(instruction.requestID), capture.choiceID == choiceID else {
-            fail("Browser context changed or hand control paused. Say last page again.")
+            fail("Navigation context changed or hand control paused. Say last page again.")
             return
         }
-        guard let browser = NSWorkspace.shared.frontmostApplication,
-              browser.processIdentifier == capture.foregroundPID,
-              isBrowserApplication(bundleIdentifier: browser.bundleIdentifier) else {
-            fail("Last page works in the active web browser. Bring your browser to the front and try again.")
+        guard let application = NSWorkspace.shared.frontmostApplication,
+              application.processIdentifier == capture.foregroundPID,
+              supportsHistoryBack(bundleIdentifier: application.bundleIdentifier) else {
+            fail("Last page works in Finder or a web browser. Bring that window to the front and try again.")
             return
         }
-        guard let events = makeBrowserBackEvents() else { fail("Could not create the browser Back shortcut."); return }
+        guard let events = makeHistoryBackEvents() else { fail("Could not create the Back shortcut."); return }
         guard armed, tracked, acceptsVoiceTarget, now() - lastHandTime <= 0.4,
               currentCapture(instruction.requestID) != nil,
-              NSWorkspace.shared.frontmostApplication?.processIdentifier == browser.processIdentifier else {
-            fail("Browser context changed before navigation. Say last page again.")
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == application.processIdentifier else {
+            fail("Navigation context changed before the Back action. Say last page again.")
             return
         }
         targetLock.clear(); targetOverlay.hide(); duplicateOverlay.hide()
         invalidateTargetContext()
         lastActionTime = now()
-        // Deliver only to the browser bound to this recording. A focus change
+        // Deliver only to the application bound to this recording. A focus change
         // cannot redirect the shortcut to an editor or another application.
-        for event in events { event.postToPid(browser.processIdentifier) }
+        for event in events { event.postToPid(application.processIdentifier) }
         emit(["type": "action", "source": "voice", "action": "back", "request_id": instruction.requestID])
     }
     func showChoices(_ json: [String: Any]) {
