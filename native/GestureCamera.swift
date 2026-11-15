@@ -31,9 +31,10 @@ func imageDistance(_ a: CGPoint, _ b: CGPoint, size: CGSize) -> Double {
 }
 
 // Vision coordinates are normalized, unmirrored, and bottom-left based.
-func screenPoint(_ point: CGPoint, bounds: CGRect, margin: Double = 0.23) -> CGPoint {
-    let x = clamp((1 - point.x - margin) / (1 - 2 * margin), 0, 1)
-    let y = clamp((1 - point.y - margin) / (1 - 2 * margin), 0, 1)
+func screenPoint(_ point: CGPoint, bounds: CGRect) -> CGPoint {
+    // Map the entire camera image, without a cropped central control region.
+    let x = clamp(1 - point.x, 0, 1)
+    let y = clamp(1 - point.y, 0, 1)
     return CGPoint(x: bounds.minX + x * (bounds.width - 1), y: bounds.minY + y * (bounds.height - 1))
 }
 
@@ -273,8 +274,8 @@ final class HandOverlay: NSView {
                           y: (bounds.height - videoSize.height * scale) / 2,
                           width: videoSize.width * scale, height: videoSize.height * scale)
         NSColor.white.withAlphaComponent(0.35).setStroke()
-        let active = rect.insetBy(dx: rect.width * 0.15, dy: rect.height * 0.15)
-        let guide = NSBezierPath(rect: active); guide.lineWidth = 1; guide.stroke()
+        let guide = NSBezierPath(rect: rect.insetBy(dx: 0.5, dy: 0.5))
+        guide.lineWidth = 1; guide.stroke()
         func location(_ point: CGPoint) -> CGPoint {
             CGPoint(x: rect.minX + (1 - point.x) * rect.width,
                     y: rect.minY + (1 - point.y) * rect.height)
@@ -402,6 +403,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         self.cameraIndex = cameraIndex; self.useVoice = useVoice
         super.init()
         request.maximumHandCount = 1
+        request.regionOfInterest = CGRect(x: 0, y: 0, width: 1, height: 1)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -1086,6 +1088,14 @@ func selfTest() -> Bool {
     check(screenPoint(CGPoint(x: 0.5, y: 0.5), bounds: bounds) == CGPoint(x: 499.5, y: 249.5), "center maps to screen center")
     check(screenPoint(CGPoint(x: 1, y: 1), bounds: bounds) == .zero, "mirrored top-left clamps")
     check(screenPoint(CGPoint(x: 0, y: 0), bounds: bounds) == CGPoint(x: 999, y: 499), "bottom-right clamps")
+    let nearEdge = screenPoint(CGPoint(x: 0.1, y: 0.9), bounds: bounds)
+    check(abs(nearEdge.x - 899.1) < 0.001 && abs(nearEdge.y - 49.9) < 0.001,
+          "Outer camera area maps proportionally instead of clamping early")
+    let fartherEdge = screenPoint(CGPoint(x: 0.05, y: 0.95), bounds: bounds)
+    check(fartherEdge.x > nearEdge.x && fartherEdge.y < nearEdge.y,
+          "Pointer continues moving through the former excluded camera margins")
+    check(screenPoint(CGPoint(x: -0.1, y: 1.1), bounds: bounds) == CGPoint(x: 999, y: 0),
+          "Out-of-frame landmarks remain clamped to screen bounds")
     let video = CGSize(width: 1280, height: 720)
     check(abs(imageDistance(.zero, CGPoint(x: 0.1, y: 0), size: video) - 128) < 0.001, "pinch horizontal geometry uses pixels")
     check(abs(imageDistance(.zero, CGPoint(x: 0, y: 0.1), size: video) - 72) < 0.001, "pinch vertical geometry uses pixels")
