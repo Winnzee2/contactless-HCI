@@ -1,5 +1,12 @@
 # 离线验证记录与复现
 
+## Switch Windows / Cmd+Tab
+
+“Switch windows,” “switch apps,” and “switch applications” route to a fixed global Cmd+Tab sequence. Command and Tab are both released in the same action, so the application never holds a modifier while awaiting speech. “Change window” remains the same-app window action; Jarvis records the new phrase as text. This implements normal Cmd+Tab behavior (typically alternating the two most recent apps), not a cycle of all individual windows.
+
+Validation includes phrase/negation checks, dictation isolation, coordinator acknowledgment routing, and native key-code/modifier/release checks. The Python suite passed 186 tests with two optional tests skipped. A live native probe switched to the previous app and back and checked that Command was released.
+
+
 ## All Windows Toggle
 
 The native Mission Control action now explicitly requests a fresh application instance on each invocation. macOS owns the overview state, so a second “all windows” request toggles it closed without sending Escape or maintaining a stale local flag. The action still leaves gesture handling enabled.

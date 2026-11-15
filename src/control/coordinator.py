@@ -67,6 +67,8 @@ class PendingNavigation:
 
 
 NAVIGATION_MESSAGES = {
+    "switch_apps": {"start": "Switching applications…", "sent": "Cmd+Tab sent.",
+                    "retry": "App switch was not confirmed. Say “switch windows” again.", "phrase": "switch windows"},
     "all_windows": {"start": "Toggling desktop window overview…", "sent": "Window overview toggle requested.",
                     "retry": "Window overview was not confirmed. Say “all windows” again.", "phrase": "all windows"},
     "close_window": {"start": "Closing the active window…", "sent": "Window close requested.",

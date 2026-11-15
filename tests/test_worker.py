@@ -26,7 +26,7 @@ class TestVoiceWorker(unittest.TestCase):
         for kind, phrase, expected in (("search", "Hey Jarvis, buy milk", "jarvis"),
                                        ("dictate", "Close window.", "dictation"),
                                        ("dictate", "Bye Jarvis.", "dictation"),
-                                       ("dictate", "All windows.", "dictation")):
+                                       ("dictate", "All windows.", "dictation"), ("dictate", "Switch windows.", "dictation")):
             with self.subTest(kind=kind, phrase=phrase), patch.object(worker, "WhisperKitEngine") as engine, \
                  patch.object(worker, "BonsaiClient") as model, \
                  patch.object(worker.sys, "stdin", io.StringIO(json.dumps(dict(self.request, type=kind)) + "\n")), \
@@ -104,11 +104,11 @@ class TestVoiceWorker(unittest.TestCase):
             self.assertEqual(records[-1], {"type": "navigation", "request_id": "a", "action": "back"})
 
     def test_tab_and_window_commands(self):
-        for phrase, action in (("all windows", "all_windows"), ("show all windows", "all_windows"),
+        for phrase, action in (("switch windows", "switch_apps"), ("Please switch windows", "switch_apps"), ("all windows", "all_windows"), ("show all windows", "all_windows"),
                                ("Could you show all windows please?", "all_windows"), ("close tab", "close_tab"), ("Please close this tab.", "close_tab"),
                                ("close window", "close_window"), ("change window", "change_window")):
             self.assertEqual(navigation_intent(phrase), action)
-        for phrase in ("Do not show all windows", "If I say all windows", "all windows and close them", "all windows were open", "Do not close tab", "If I say close tab", "close tab and quit", "Do not alt tab", "alt tab", "alt-tab", "all tab", "do not close window", "if I say change window", "close window and quit"):
+        for phrase in ("Do not switch windows", "If I say switch windows", "switch windows and close it", "Do not show all windows", "If I say all windows", "all windows and close them", "all windows were open", "Do not close tab", "If I say close tab", "close tab and quit", "Do not alt tab", "alt tab", "alt-tab", "all tab", "do not close window", "if I say change window", "close window and quit"):
             self.assertIsNone(navigation_intent(phrase))
 
     def test_natural_navigation_and_small_transcription_error(self):

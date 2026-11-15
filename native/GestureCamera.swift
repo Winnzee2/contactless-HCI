@@ -85,12 +85,12 @@ struct VoiceAction {
     init?(_ json: [String: Any], bounds: CGRect) {
         guard json["type"] as? String == "voice_action",
               let action = json["action"] as? String,
-              ["move_to", "back", "tab_left", "tab_right", "close_tab", "close_window", "change_window", "all_windows", "none"].contains(action),
+              ["move_to", "back", "tab_left", "tab_right", "close_tab", "close_window", "change_window", "all_windows", "switch_apps", "none"].contains(action),
               let id = json["request_id"] as? String, !id.isEmpty, id.count <= 128 else { return nil }
         self.action = action
         self.requestID = id
         if action == "none" { self.point = nil; return }
-        if ["back", "tab_left", "tab_right", "close_tab", "close_window", "change_window", "all_windows"].contains(action) {
+        if ["back", "tab_left", "tab_right", "close_tab", "close_window", "change_window", "all_windows", "switch_apps"].contains(action) {
             // Navigation has a fixed meaning, never caller-supplied keys or URLs.
             guard Set(json.keys).isSubset(of: ["type", "action", "request_id", "choice_id"]),
                   json["choice_id"] == nil || json["choice_id"] is String else { return nil }
@@ -922,7 +922,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         return true
     }
     func applyVoiceInstruction(_ instruction: VoiceAction, json: [String: Any], deadline: Double) {
-        if ["back", "tab_left", "tab_right", "close_tab", "close_window", "change_window", "all_windows"].contains(instruction.action) {
+        if ["back", "tab_left", "tab_right", "close_tab", "close_window", "change_window", "all_windows", "switch_apps"].contains(instruction.action) {
             performVoiceNavigation(instruction, choiceID: json["choice_id"] as? String)
             return
         }
@@ -989,6 +989,17 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         guard let application = NSWorkspace.shared.frontmostApplication,
               application.processIdentifier == capture.foregroundPID else {
             fail("The active application changed. Say the command again.")
+            return
+        }
+        if instruction.action == "switch_apps" {
+            guard let events = makeAppSwitchEvents() else { fail("Could not create Cmd+Tab."); return }
+            rapidClicks.reset(); targetLock.clear(); targetOverlay.hide(); duplicateOverlay.hide()
+            invalidateTargetContext()
+            lastActionTime = now()
+            // The system app switcher handles this globally, not the old app.
+            for event in events { event.post(tap: .cghidEventTap) }
+            tactile(.navigation)
+            emit(["type": "action", "source": "voice", "action": instruction.action, "request_id": instruction.requestID])
             return
         }
         if instruction.action == "all_windows" {
@@ -1248,7 +1259,7 @@ func selfTest() -> Bool {
         json["action"] = forbiddenAction
         check(VoiceAction(json, bounds: bounds) == nil, "gesture actions cannot be supplied by voice")
     }
-    for action in ["back", "tab_left", "tab_right", "close_tab", "close_window", "change_window", "all_windows"] {
+    for action in ["back", "tab_left", "tab_right", "close_tab", "close_window", "change_window", "all_windows", "switch_apps"] {
         let navigation: [String: Any] = ["type": "voice_action", "action": action, "request_id": "navigation-test"]
         check(VoiceAction(navigation, bounds: bounds)?.action == action, "Explicit navigation requires no target coordinates")
         check(VoiceAction(navigation, bounds: bounds)?.point == nil, "Navigation does not position or click the mouse")

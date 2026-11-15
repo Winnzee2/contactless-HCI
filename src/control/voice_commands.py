@@ -21,6 +21,8 @@ def navigation_intent(transcript: str) -> Optional[str]:
         return "back"
     if text in ("all windows", "show all windows", "show all the windows", "显示所有窗口"):
         return "all_windows"
+    if text in ("switch windows", "switch apps", "switch applications"):
+        return "switch_apps"
     if text in ("close tab", "close the current tab", "close this tab", "关闭当前标签页"):
         return "close_tab"
     if text in ("close window", "close this window", "close the current window", "关闭窗口"):

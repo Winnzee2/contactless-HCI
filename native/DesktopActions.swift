@@ -45,6 +45,23 @@ func makeHistoryBackEvents() -> [CGEvent]? {
     return [down, up]
 }
 
+/// One complete Cmd+Tab press, including Command release. Never leave a
+/// modifier held while waiting for speech or the app switcher will capture input.
+func makeAppSwitchEvents() -> [CGEvent]? {
+    let source = CGEventSource(stateID: .privateState)
+    guard let commandDown = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: true),
+          let tabDown = CGEvent(keyboardEventSource: source, virtualKey: 0x30, keyDown: true),
+          let tabUp = CGEvent(keyboardEventSource: source, virtualKey: 0x30, keyDown: false),
+          let commandUp = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: false) else { return nil }
+    let events = [commandDown, tabDown, tabUp, commandUp]
+    for event in events {
+        event.flags = .maskCommand
+        event.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
+    }
+    commandUp.flags = []
+    return events
+}
+
 /// Close only the current tab of the browser bound to the voice request.
 func makeCloseTabEvents() -> [CGEvent]? {
     guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 0x0D, keyDown: true),
@@ -140,6 +157,14 @@ func desktopActionSelfTest() -> (tests: Int, failures: [String]) {
     var tests = 0
     var failures: [String] = []
     func check(_ condition: Bool, _ message: String) { tests += 1; if !condition { failures.append(message) } }
+    if let events = makeAppSwitchEvents() {
+        check(events.count == 4, "App switch emits complete modifier and Tab pairs")
+        check(events.map { $0.getIntegerValueField(.keyboardEventKeycode) } == [0x37, 0x30, 0x30, 0x37],
+              "App switch uses only Command and Tab")
+        check(events.map { $0.type } == [.flagsChanged, .keyDown, .keyUp, .flagsChanged], "App switch releases both keys")
+        check(events.prefix(3).allSatisfy { $0.flags.contains(.maskCommand) }, "Tab carries Command")
+        check(events.last?.flags.isEmpty == true, "App switch releases Command to finish selection")
+    } else { check(false, "App switch event creation") }
     let point = CGPoint(x: 417.25, y: 206.5)
     let single = makePointerClickEvents(.left, at: point) ?? []
     check(single.map(\.type) == [.leftMouseDown, .leftMouseUp], "Single click has exactly one down/up pair")
