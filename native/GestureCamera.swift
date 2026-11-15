@@ -31,10 +31,10 @@ func imageDistance(_ a: CGPoint, _ b: CGPoint, size: CGSize) -> Double {
 }
 
 // Vision coordinates are normalized, unmirrored, and bottom-left based.
-func screenPoint(_ point: CGPoint, bounds: CGRect) -> CGPoint {
+func screenPoint(_ point: CGPoint, bounds: CGRect, gain: Double = 1) -> CGPoint {
     // Map the entire camera image, without a cropped central control region.
-    let x = clamp(1 - point.x, 0, 1)
-    let y = clamp(1 - point.y, 0, 1)
+    let x = clamp(0.5 + (0.5 - point.x) * gain, 0, 1)
+    let y = clamp(0.5 + (0.5 - point.y) * gain, 0, 1)
     return CGPoint(x: bounds.minX + x * (bounds.width - 1), y: bounds.minY + y * (bounds.height - 1))
 }
 
@@ -373,6 +373,9 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     var tracked = false
     var scrollPinch = ScrollPinchLatch()
     var leftPinch = HoldPinchLatch()
+    var rapidClicks = RapidClickSequence()
+    var pointerGain = min(1.5, max(1, UserDefaults.standard.object(forKey: "pointerGain") as? Double ?? 1.15))
+    var rangeLabel: NSTextField!
     var rightPinch = PinchLatch()
     var pinchPoint: CGPoint?
     var pinchApproach = PinchApproachLatch()
@@ -436,7 +439,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         stateLabel.font = .systemFont(ofSize: 18, weight: .semibold)
         speechLabel = NSTextField(wrappingLabelWithString: useVoice ? "Voice is preparing locally." : "Camera-only mode. Voice capture is off.")
         speechLabel.maximumNumberOfLines = 3
-        let hint = NSTextField(wrappingLabelWithString: "Index: move · Thumb + middle: release to click, hold 0.7s to double-click · Thumb + ring: right click\nThumb + pinky: hold and move up/down to scroll\nSpace: enable/pause · Escape: pause · Q: quit")
+        let hint = NSTextField(wrappingLabelWithString: "Index: move · Thumb + middle: release to click, pinch twice quickly to double-click · Thumb + ring: right click\nThumb + pinky: hold and move up/down to scroll\nSpace: enable/pause · Escape: pause · Q: quit")
         hint.textColor = .secondaryLabelColor
         toggleButton = NSButton(title: "Enable pointer", target: self, action: #selector(toggle))
         toggleButton.bezelStyle = .rounded
@@ -445,7 +448,12 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let sound = NSButton(checkboxWithTitle: "Sound effects", target: self, action: #selector(toggleSound(_:)))
         sound.state = soundEnabled ? .on : .off
         let buttons = NSStackView(views: [toggleButton, quit, sound]); buttons.orientation = .horizontal; buttons.spacing = 12
-        let info = NSStackView(views: [stateLabel, speechLabel, hint, buttons])
+        rangeLabel = NSTextField(labelWithString: String(format: "Pointer reach: %.0f%%", pointerGain * 100))
+        let reach = NSSlider(value: pointerGain, minValue: 1, maxValue: 1.5, target: self, action: #selector(changePointerGain(_:)))
+        reach.setAccessibilityLabel("Pointer reach")
+        reach.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        let rangeRow = NSStackView(views: [rangeLabel, reach]); rangeRow.spacing = 12
+        let info = NSStackView(views: [stateLabel, speechLabel, hint, buttons, rangeRow])
         info.orientation = .vertical; info.alignment = .leading; info.spacing = 9
         info.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(preview); root.addSubview(info)
@@ -580,6 +588,12 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         default: complete(false)
         }
     }
+    @objc func changePointerGain(_ sender: NSSlider) {
+        pointerGain = sender.doubleValue
+        UserDefaults.standard.set(pointerGain, forKey: "pointerGain")
+        rangeLabel.stringValue = String(format: "Pointer reach: %.0f%%", pointerGain * 100)
+        rapidClicks.reset()
+    }
     @objc func toggle() { setArmed(!armed) }
     @objc func quitPressed() { shutdown() }
     func setArmed(_ value: Bool) {
@@ -595,7 +609,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
         armed = value
         if !value { sensingOverlay.clear() }
-        scrollPinch.reset(); leftPinch.reset(); rightPinch.reset()
+        rapidClicks.reset(); scrollPinch.reset(); leftPinch.reset(); rightPinch.reset()
         pinchApproach.reset(); pinchPoint = nil; gestureBusy = false
         targetLock.clear()
         targetOverlay.hide()
@@ -699,7 +713,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if regainedHand && armed && !gestureBusy && now() >= audioCueDeadline { mic.setArmed(true) }
         preview.videoSize = videoSize; preview.rawPoint = raw; preview.joints = joints
         lastRawPoint = raw
-        let target = screenPoint(raw, bounds: screen)
+        let target = screenPoint(raw, bounds: screen, gain: pointerGain)
         var pinchEvent = PinchHoldEvent.none
         var rightEdge = false
         if armed {
@@ -720,7 +734,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
                     (scrollPinch.active || scrollRatio >= 0.58 || scrollRatio + 0.05 < min(leftRatio, rightRatio)),
                 time: time)
             if scrollPinch.active || wasScrolling {
-                if scrollPinch.active && !wasScrolling { tactile(.scroll) }
+                if scrollPinch.active && !wasScrolling { rapidClicks.reset(); tactile(.scroll) }
                 setGestureBusy(scrollPinch.active)
                 leftPinch.reset(); rightPinch.reset(); pinchPoint = nil
                 if pointer == nil { pointer = CGEvent(source: nil)?.location ?? target }
@@ -738,7 +752,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             }
             pinchEvent = leftPinch.update(ratio: leftRatio,
                                          eligible: leftPinch.active || (!rightPinch.pinched &&
-                                             (leftRatio >= 0.58 || leftRatio + 0.05 < min(rightRatio, scrollRatio)) && time - lastActionTime >= 0.5),
+                                             (leftRatio >= 0.58 || leftRatio + 0.05 < min(rightRatio, scrollRatio)) ),
                                          time: time)
             if pinchEvent == .began && pinchPoint == nil {
                 pinchPoint = pointer ?? CGEvent(source: nil)?.location ?? target
@@ -762,7 +776,6 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         guard AXIsProcessTrusted() else { setArmed(false); return }
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
         if pinchEvent == .singleClick { click(.left, at: point) }
-        else if pinchEvent == .doubleClick { click(.double, at: point) }
         else if rightEdge { click(.right, at: point) }
         if !leftPinch.active && !pinchApproach.active { pinchPoint = nil }
     }
@@ -773,7 +786,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         sensingOverlay.updateCursor(nil, time: now())
         preview.rawPoint = nil; preview.joints = [:]
         if tracked { mic.setArmed(false) }
-        scrollPinch.reset(); leftPinch.reset(); rightPinch.reset()
+        rapidClicks.reset(); scrollPinch.reset(); leftPinch.reset(); rightPinch.reset()
         pinchApproach.reset(); pinchPoint = nil; gestureBusy = false
         lastRawPoint = nil
         pointer = nil
@@ -784,13 +797,16 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
     }
     func click(_ action: PointerClickAction, at point: CGPoint) {
-        guard armed, tracked, now() - lastHandTime <= 0.4, AXIsProcessTrusted(), now() - lastActionTime >= 0.5 else { return }
-        guard let events = makePointerClickEvents(action, at: point) else { return }
+        guard armed, tracked, now() - lastHandTime <= 0.4, AXIsProcessTrusted(), now() - lastActionTime >= (action == .left ? 0.06 : 0.5) else { return }
+        let count: Int64
+        if action == .left { count = rapidClicks.register(point: point, time: now(), interval: NSEvent.doubleClickInterval) }
+        else { rapidClicks.reset(); count = 1 }
+        guard let events = makePointerClickEvents(action, at: point, clickCount: count) else { return }
         invalidateTargetContext()
         let button: CGMouseButton = action == .right ? .right : .left
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: button)?.post(tap: .cghidEventTap)
         for event in events { event.post(tap: .cghidEventTap) }
-        tactile(action == .double ? .doubleClick : .click)
+        tactile(count == 2 ? .doubleClick : .click)
         lastActionTime = now()
         emit(["type": "action", "action": action.rawValue, "source": "gesture", "x": point.x, "y": point.y])
         targetLock.clear()
@@ -861,6 +877,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func performVoiceMove(_ instruction: VoiceAction, point: CGPoint, label: String) {
         guard currentCapture(instruction.requestID) != nil else { return }
         guard armed, tracked, acceptsVoiceTarget, now() - lastHandTime <= 0.4, AXIsProcessTrusted(), let anchor = lastRawPoint else { return }
+        rapidClicks.reset()
         let lockedAt = now()
         targetLock.hold(point, anchor: anchor, time: lockedAt); pointer = point
         tactile(.lock)
@@ -904,6 +921,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             fail("Navigation context changed before the action. Say the command again.")
             return
         }
+        rapidClicks.reset()
         targetLock.clear(); targetOverlay.hide(); duplicateOverlay.hide()
         invalidateTargetContext()
         lastActionTime = now()
@@ -1064,6 +1082,10 @@ func selfTest() -> Bool {
     check(screenPoint(CGPoint(x: 0.5, y: 0.5), bounds: bounds) == CGPoint(x: 499.5, y: 249.5), "center maps to screen center")
     check(screenPoint(CGPoint(x: 1, y: 1), bounds: bounds) == .zero, "mirrored top-left clamps")
     check(screenPoint(CGPoint(x: 0, y: 0), bounds: bounds) == CGPoint(x: 999, y: 499), "bottom-right clamps")
+    check(screenPoint(CGPoint(x: 0.5, y: 0.5), bounds: bounds, gain: 1.15) == CGPoint(x: 499.5, y: 249.5),
+          "Extra pointer reach preserves the center")
+    check(screenPoint(CGPoint(x: 0.05, y: 0.95), bounds: bounds, gain: 1.15) == CGPoint(x: 999, y: 0),
+          "Extra reach reaches screen edges before camera edges")
     let nearEdge = screenPoint(CGPoint(x: 0.1, y: 0.9), bounds: bounds)
     check(abs(nearEdge.x - 899.1) < 0.001 && abs(nearEdge.y - 49.9) < 0.001,
           "Outer camera area maps proportionally instead of clamping early")

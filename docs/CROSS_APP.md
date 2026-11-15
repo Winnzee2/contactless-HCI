@@ -2,7 +2,7 @@
 
 Local Control uses system mouse events and local screen discovery. Target discovery does not depend on the demo board, website selectors, browser JavaScript, a browser extension, or an application whitelist.
 
-Point near the intended control, say its visible label or accessible name, and pinch to click after the pointer reaches it. Briefly pinch thumb and middle finger, then release for one left click; hold that pinch for about 0.7 seconds for one double-click. Thumb and ring finger perform a right click. The pointer stays at the pinch position while you hold it, and a held gesture fires only once until released.
+Point near the intended control, say its visible label or accessible name, and pinch to click after the pointer reaches it. Briefly pinch thumb and middle finger, then release for one left click; repeat the pinch and release quickly at the same position for a natural double-click. Thumb and ring finger perform a right click. The pointer stays at the pinch position while you hold it, and holding a pinch fires no click until release.
 
 A cyan ring and a click-through caption identify the voice target. The caption counts down the three-second protection period, then displays “Pinch to click.” A click, pause, tracking loss, or deliberate movement after the protection period clears the lock and highlight. Beginning another voice search hides the old highlight before capture.
 
@@ -11,6 +11,8 @@ When several nearby targets match the same spoken name, each gets a numbered cir
 The fist-to-Mission-Control gesture is disabled. Starting a pinch or fist gesture invalidates any pending voice result so that an old result cannot move the pointer during the action. Voice cannot double-click or open Mission Control. The explicit phrase “last page” sends Back to the active browser or Finder window. In Finder, it returns to the previously visited folder in that window's navigation history. Naming a target continues to position the pointer without clicking.
 
 When browser tab titles are shortened or hidden, say “tab left” or “tab right” as a complete utterance to switch to the adjacent tab in the active browser window. Control must be enabled and your hand visible. These browser-only commands use previous/next-tab shortcuts instead of title matching, clear numbered choices and pointer locks, and send no mouse click. They run fully locally and follow the browser's normal cycling behavior at the first or last tab. Finder folder history remains available through “last page.”
+
+Pointer reach is adjustable from 100–150%, with a saved 115% default. At 100%, the full camera frame maps 1:1 to the screen. Higher values reach screen edges with less hand movement.
 
 ## Discovery and Selection
 

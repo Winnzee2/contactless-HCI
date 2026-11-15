@@ -52,23 +52,31 @@ func pinchPalmScale(joints: [VNHumanHandPoseObservation.JointName: CGPoint], siz
                length(.indexMCP, .littleMCP) * 1.25)
 }
 
+struct RapidClickSequence {
+    private var lastTime = -Double.infinity
+    private var lastPoint = CGPoint.zero
+    mutating func reset() { lastTime = -Double.infinity }
+    mutating func register(point: CGPoint, time: Double, interval: Double) -> Int64 {
+        let isDouble = time >= lastTime && time - lastTime <= interval &&
+            hypot(point.x - lastPoint.x, point.y - lastPoint.y) <= 8
+        if isDouble { reset(); return 2 }
+        lastTime = time; lastPoint = point
+        return 1
+    }
+}
+
 enum PinchHoldEvent: Equatable {
     case none, began, singleClick, doubleClick, released, cancelled
 }
 
 struct HoldPinchLatch {
-    static let holdDuration: TimeInterval = 0.7
     private(set) var active = false
     private var ready = false
-    private var beganAt: TimeInterval?
-    private var fired = false
     private var lastSample: TimeInterval?
 
     mutating func reset() {
         active = false
         ready = false
-        beganAt = nil
-        fired = false
         lastSample = nil
     }
 
@@ -88,30 +96,15 @@ struct HoldPinchLatch {
         lastSample = time
         if ratio >= 0.58 {
             let wasActive = active
-            let alreadyFired = fired
-            let elapsed = beganAt.map { time - $0 } ?? 0
             active = false
-            beganAt = nil
-            fired = false
             ready = true
             guard wasActive else { return .none }
-            if alreadyFired { return .released }
-            // A release frame may be the first sample after the hold deadline.
-            // Still emit exactly one click action, never a preceding single.
-            return elapsed + 1e-9 >= Self.holdDuration ? .doubleClick : .singleClick
+            return .singleClick
         }
-        if active {
-            if !fired, let beganAt = beganAt, time - beganAt + 1e-9 >= Self.holdDuration {
-                fired = true
-                return .doubleClick
-            }
-            return .none
-        }
+        if active { return .none }
         guard ready, ratio <= 0.40 else { return .none }
         ready = false
         active = true
-        beganAt = time
-        fired = false
         return .began
     }
 }
@@ -347,6 +340,16 @@ func handGestureSelfTest() -> (tests: Int, failures: [String]) {
         tests += 1
         if !okay { failures.append(message) }
     }
+    var clicks = RapidClickSequence()
+    let clickPoint = CGPoint(x: 100, y: 100)
+    check(clicks.register(point: clickPoint, time: 1, interval: 0.5) == 1, "First click is immediate")
+    check(clicks.register(point: clickPoint, time: 1.2, interval: 0.5) == 2, "Second rapid release carries double click count")
+    check(clicks.register(point: clickPoint, time: 1.4, interval: 0.5) == 1, "Third click starts a new pair")
+    check(clicks.register(point: CGPoint(x: 130, y: 100), time: 1.5, interval: 0.5) == 1,
+          "Clicks at different positions do not form a double click")
+    check(clicks.register(point: clickPoint, time: 3, interval: 0.5) == 1, "Slow clicks stay single")
+    clicks.reset()
+    check(clicks.register(point: clickPoint, time: 3.1, interval: 0.5) == 1, "Pause cancels the click sequence")
     var filter = HandLandmarkFilter()
     func sample(_ x: Double, _ confidence: Double) -> [VNHumanHandPoseObservation.JointName: HandLandmarkSample] {
         [.indexTip: HandLandmarkSample(point: CGPoint(x: x, y: 0.5), confidence: confidence)]
@@ -428,12 +431,12 @@ func handGestureSelfTest() -> (tests: Int, failures: [String]) {
           "Release hysteresis tolerates a little fingertip movement")
     check(pinch.update(ratio: 0.2, eligible: true, time: 1.1) == .none,
           "A hold shorter than 700 ms emits no click")
-    check(pinch.update(ratio: 0.2, eligible: true, time: 1.2) == .doubleClick && pinch.active,
-          "A continuous 700 ms pinch emits one double click")
+    check(pinch.update(ratio: 0.2, eligible: true, time: 1.2) == .none && pinch.active,
+          "Holding a pinch never emits a click")
     check(pinch.update(ratio: 0.2, eligible: true, time: 1.5) == .none,
-          "Holding after double click never repeats")
-    check(pinch.update(ratio: 0.8, eligible: true, time: 1.6) == .released && !pinch.active,
-          "Release after a double click emits no additional single")
+          "Holding never generates repeated clicks")
+    check(pinch.update(ratio: 0.8, eligible: true, time: 1.6) == .singleClick && !pinch.active,
+          "Release of a long hold emits one single click")
     _ = pinch.update(ratio: 0.2, eligible: true, time: 1.7)
     check(pinch.update(ratio: 0.2, eligible: false, time: 1.8) == .cancelled && !pinch.active,
           "Ambiguous pose cancels a pending pinch")
@@ -455,8 +458,8 @@ func handGestureSelfTest() -> (tests: Int, failures: [String]) {
     _ = pinch.update(ratio: 0.2, eligible: true, time: 3.3)
     _ = pinch.update(ratio: 0.2, eligible: true, time: 3.6)
     _ = pinch.update(ratio: 0.2, eligible: true, time: 3.9)
-    check(pinch.update(ratio: 0.8, eligible: true, time: 4) == .doubleClick && !pinch.active,
-          "A release at the hold deadline emits a double without a preliminary single")
+    check(pinch.update(ratio: 0.8, eligible: true, time: 4) == .singleClick && !pinch.active,
+          "A long pinch release emits exactly one single click")
 
     var fist = FistOpenLatch()
     check(!fist.update(pose: .open, time: 0) && !fist.isEngaged,
@@ -531,10 +534,10 @@ func handGestureSelfTest() -> (tests: Int, failures: [String]) {
     _ = afterOverview(0.2, 21.2)
     _ = afterOverview(0.2, 21.5)
     _ = afterOverview(0.2, 21.8)
-    check(afterOverview(0.2, 21.9) == .doubleClick,
-          "A held double click works while Mission Control launch is pending")
-    check(afterOverview(0.8, 22) == .released,
-          "Releasing the resumed double click produces no extra click")
+    check(afterOverview(0.2, 21.9) == .none,
+          "A held pinch emits no click while Mission Control launch is pending")
+    check(afterOverview(0.8, 22) == .singleClick,
+          "Release completes one single click")
     check(overview.complete(request: firstOverview) && !overview.blocksInput(time: 22.1),
           "A delayed matching callback cannot re-lock resumed input")
     check(!overview.complete(request: firstOverview),

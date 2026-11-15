@@ -2,11 +2,11 @@
 
 On an Apple Silicon Mac, move the pointer with your index finger, pinch to click, and name a nearby visible control to target it across applications. Camera recognition, speech transcription, accessibility inspection, screen text recognition, and Bonsai inference all run locally. No browser extension or integration with a particular website is required.
 
-Hand control uses the full camera image. The preview border marks the entire image, and index-finger movement maps across the whole frame to the screen without a central crop. Smoothing and pinch stabilization remain enabled; keep the relevant fingertips and palm landmarks visible to the camera.
+Hand control uses the full camera image. The preview border marks the entire image, and **Pointer reach** adjusts how far index-finger movement travels: 100% gives 1:1 full-frame mapping, while 115% (default) reaches screen edges with slightly less movement. The slider supports 100–150% and remembers your setting. The actual cursor stays within screen bounds. Smoothing and pinch stabilization remain enabled; keep the relevant fingertips and palm landmarks visible to the camera.
 
 A cyan sensing circle follows the cursor while hand control is active. It is a visual focus indicator; voice targeting still searches the entire primary screen. Recognized speech appears in **red in the upper-right corner** for eight seconds, updating with each new utterance. Both overlays let clicks pass through, never take keyboard focus, and disappear when control is paused. They are temporarily hidden during screen recognition so the app cannot read its own captions as targets.
 
-**Voice positions the pointer, navigates back, or switches browser tabs; it never clicks.** For example, point near a visible label and say “Codex.” The pointer moves to the recognized target and locks in place. For the first **15 seconds**, finger movement cannot pull it away, giving you time to pinch and release your thumb and middle finger for a left click, or hold the pinch for a double-click.
+**Voice positions the pointer, navigates back, or switches browser tabs; it never clicks.** For example, point near a visible label and say “Codex.” The pointer moves to the recognized target and locks in place. For the first **15 seconds**, finger movement cannot pull it away, giving you time to pinch and release your thumb and middle finger for a left click, or pinch and release twice quickly for a double-click.
 
 A click-through highlight shows the selected target and the remaining hold time. The highlight and lock expire after the countdown. Clicking, pausing, or beginning another voice search also dismisses the highlight.
 
@@ -43,7 +43,7 @@ You may need to quit and restart after changing permissions. The app starts **PA
 | --- | --- |
 | Move your index finger | Move the pointer on the primary display |
 | Briefly pinch thumb + middle finger, then release | One left click on release |
-| Hold thumb + middle finger together for about **0.7 seconds** | One double-click at the pinch position; release before triggering another click |
+| Pinch and release thumb + middle twice quickly at the same position | Natural double-click using macOS’s double-click interval |
 | Pinch thumb + ring finger | Right click |
 | Hold thumb and pinky together, then move your hand up/down | Scroll up/down under the pointer; release to resume pointer movement |
 | Name a nearby control, such as “Codex” or “open Reports” | Argmax transcription → accessibility labels and local OCR → Bonsai selection → pointer positioning; no click |
@@ -57,7 +57,7 @@ You may need to quit and restart after changing permissions. The app starts **PA
 | Escape | Pause control |
 | Q, while the control window is active, or close the window | Quit |
 
-A single click, double-click, or right click releases the target lock. A held middle-finger pinch sends one double-click without an extra preliminary single click; holding longer does not repeat it. The pointer stays at the pinch position until you release.
+A single click, double-click, or right click releases the target lock. Each middle-finger pinch release sends one click immediately. Two rapid releases within eight screen points form a double-click; holding the pinch never fires a click. The pointer stays at the pinch position until you release.
 
 With control enabled and your hand visible, say **“last page”** to use Back in the active browser or Finder window. In Finder, it returns to the previously visited folder in that window's navigation history. The phrase works without a readable screen target and clears any numbered choices or pointer lock. It must be the complete utterance; a sentence mentioning “last page” does not navigate. Recognition and command handling stay local. Local folders remain available without Wi-Fi; offline web content must already be available locally or in the browser cache. The command uses the standard macOS Command-[ Back shortcut; without a previous history entry, nothing changes.
 

@@ -9,8 +9,8 @@ enum PointerClickAction: String {
     case double = "double_click"
 }
 
-func makePointerClickEvents(_ action: PointerClickAction, at point: CGPoint) -> [CGEvent]? {
-    guard point.x.isFinite, point.y.isFinite else { return nil }
+func makePointerClickEvents(_ action: PointerClickAction, at point: CGPoint, clickCount: Int64 = 1) -> [CGEvent]? {
+    guard point.x.isFinite, point.y.isFinite, (1...2).contains(clickCount) else { return nil }
     let button: CGMouseButton = action == .right ? .right : .left
     let down: CGEventType = action == .right ? .rightMouseDown : .leftMouseDown
     let up: CGEventType = action == .right ? .rightMouseUp : .leftMouseUp
@@ -23,8 +23,8 @@ func makePointerClickEvents(_ action: PointerClickAction, at point: CGPoint) -> 
                                     mouseCursorPosition: point, mouseButton: button) else { return nil }
         // A double click is two complete clicks, with the second pair marked 2.
         // There must be no earlier single click at the beginning of a held pinch.
-        press.setIntegerValueField(.mouseEventClickState, value: Int64(click))
-        release.setIntegerValueField(.mouseEventClickState, value: Int64(click))
+        press.setIntegerValueField(.mouseEventClickState, value: action == .double ? Int64(click) : clickCount)
+        release.setIntegerValueField(.mouseEventClickState, value: action == .double ? Int64(click) : clickCount)
         events.append(contentsOf: [press, release])
     }
     return events
@@ -142,6 +142,9 @@ func desktopActionSelfTest() -> (tests: Int, failures: [String]) {
     check((single + right + double).allSatisfy { $0.location == point }, "Every click edge uses the same captured pointer point")
     check(makePointerClickEvents(.double, at: CGPoint(x: Double.nan, y: 0)) == nil, "Nonfinite horizontal coordinates are rejected")
     check(makePointerClickEvents(.left, at: CGPoint(x: 0, y: Double.infinity)) == nil, "Nonfinite vertical coordinates are rejected")
+    let second = makePointerClickEvents(.left, at: point, clickCount: 2) ?? []
+    check(second.count == 2 && second.allSatisfy { $0.getIntegerValueField(.mouseEventClickState) == 2 },
+          "Natural double click emits only its second down/up pair")
     let back = makeHistoryBackEvents() ?? []
     check(back.map(\.type) == [.keyDown, .keyUp], "History Back is exactly one keyboard down/up pair")
     check(back.allSatisfy { $0.getIntegerValueField(.keyboardEventKeycode) == 0x21 },
