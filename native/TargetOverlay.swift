@@ -187,20 +187,30 @@ private final class VoiceCaptionView: NSView {
     override var isOpaque: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func draw(_ dirtyRect: NSRect) {
-        let card = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 14, yRadius: 14)
-        NSColor(srgbRed: 0.035, green: 0.045, blue: 0.06, alpha: 0.62).setFill(); card.fill()
-        let red = NSColor(srgbRed: 1, green: 0.22, blue: 0.27, alpha: 1)
-        red.withAlphaComponent(0.4).setStroke(); card.lineWidth = 1; card.stroke()
-        red.setFill()
-        NSBezierPath(ovalIn: CGRect(x: 19, y: bounds.height - 27, width: 6, height: 6)).fill()
-        (heading as NSString).draw(at: CGPoint(x: 33, y: bounds.height - 30),
-            withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold),
-                             .foregroundColor: red.withAlphaComponent(0.85), .kern: 1.2])
+        let card = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9)
+        NSColor(srgbRed: 0.04, green: 0.05, blue: 0.065, alpha: 0.72).setFill(); card.fill()
+        NSColor.white.withAlphaComponent(0.14).setStroke(); card.lineWidth = 0.5; card.stroke()
+        let red = NSColor(srgbRed: 1, green: 0.36, blue: 0.39, alpha: 1)
+        let muted = NSColor(srgbRed: 0.65, green: 0.7, blue: 0.76, alpha: 1)
+        let recognized = heading == "VOICE RECOGNIZED"
+        let title = recognized ? "VOICE / CAPTURED" : "VOICE / LIVE"
+        (title as NSString).draw(at: CGPoint(x: 16, y: bounds.height - 25),
+            withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 9, weight: .medium),
+                             .foregroundColor: muted, .kern: 1.1])
+        ("LOCAL" as NSString).draw(at: CGPoint(x: bounds.width - 49, y: bounds.height - 25),
+            withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 8, weight: .regular),
+                             .foregroundColor: muted.withAlphaComponent(0.65)])
+        let divider = NSBezierPath()
+        divider.move(to: CGPoint(x: 16, y: bounds.height - 34))
+        divider.line(to: CGPoint(x: bounds.width - 16, y: bounds.height - 34))
+        NSColor.white.withAlphaComponent(0.1).setStroke(); divider.lineWidth = 0.5; divider.stroke()
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
-        (text as NSString).draw(in: CGRect(x: 18, y: 15, width: bounds.width - 36, height: 55),
-            withAttributes: [.font: NSFont.systemFont(ofSize: 22, weight: .semibold),
-                             .foregroundColor: red, .paragraphStyle: paragraph])
+        paragraph.lineSpacing = 3
+        (text as NSString).draw(in: CGRect(x: 16, y: 12, width: bounds.width - 32, height: 44),
+            withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 14, weight: .medium),
+                             .foregroundColor: recognized ? red : NSColor.white.withAlphaComponent(0.85),
+                             .paragraphStyle: paragraph])
     }
 }
 
@@ -283,7 +293,7 @@ final class SensingOverlay {
         } else { ringPanel?.orderOut(nil) }
         if !transcript.isEmpty {
             let usable = screen.visibleFrame.insetBy(dx: 18, dy: 18)
-            let width = min(360, usable.width), height = min(108, usable.height)
+            let width = min(320, usable.width), height = min(98, usable.height)
             let frame = CGRect(x: usable.maxX - width, y: usable.maxY - height, width: width, height: height)
             if captionPanel == nil { captionPanel = panel(view: VoiceCaptionView()) }
             captionPanel?.setFrame(frame, display: false)

@@ -1,5 +1,12 @@
 # 离线验证记录与复现
 
+## App Window Commands and Monospaced Speech Panel
+
+On November 15, 2026, “alt tab” and its transcription alias were removed. “Close window” resolves the active Accessibility window and presses its close button; “change window” raises another non-minimized standard window in the same app. Foreground PID and focused window are rechecked before acting. Browser “close tab” remains separate.
+
+A disposable two-window AppKit fixture verified actual window switching and closing, with the other window left open. Real local Argmax recognized both new phrases and rejected “Do not close window.” The Python run passed 161 tests with two optional tests skipped (163 discovered), and all 303 native checks passed. The production monospaced panel was rendered and inspected, and click-through, focus, persistence, and pause behavior passed. A cursor-equality check was removed from the preview harness after manual cursor movement interrupted it; this check does not claim a physical gesture acceptance trial. Local artifacts remain in ignored `.build/verification/window-commands/` and `.build/verification/persistent-speech/`.
+
+
 ## Persistent Speech Panel and Browser Commands
 
 On November 15, 2026, the speech panel became persistent, with a translucent background and a native speech-onset callback for immediate “Listening…” feedback. It remains visible during screen capture; ScreenCaptureKit excludes the app's windows and target discovery ignores its floating panels. Final transcript text stays until a new utterance or pause state.

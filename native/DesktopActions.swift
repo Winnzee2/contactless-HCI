@@ -198,3 +198,40 @@ func desktopActionSelfTest() -> (tests: Int, failures: [String]) {
           "Adding Finder support does not authorize an unregistered browser")
     return (tests, failures)
 }
+
+/// Resolve the actual focused window, so closing a browser window does not
+/// accidentally mean closing only its selected tab. Never dismiss save sheets.
+func prepareWindowAction(pid: pid_t, close: Bool) -> (() -> Bool)? {
+    let app = AXUIElementCreateApplication(pid)
+    AXUIElementSetMessagingTimeout(app, 0.5)
+    func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, key as CFString, &value) == .success else { return nil }
+        return value
+    }
+    func element(_ value: CFTypeRef?) -> AXUIElement? {
+        guard let value = value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        return (value as! AXUIElement)
+    }
+    guard let focused = element(attribute(app, kAXFocusedWindowAttribute)) ?? element(attribute(app, kAXMainWindowAttribute)) else { return nil }
+    let target: AXUIElement
+    let action: CFString
+    if close {
+        guard let button = element(attribute(focused, kAXCloseButtonAttribute)),
+              (attribute(button, kAXEnabledAttribute) as? NSNumber)?.boolValue != false else { return nil }
+        target = button; action = kAXPressAction as CFString
+    } else {
+        let windows = (attribute(app, kAXWindowsAttribute) as? [AXUIElement] ?? []).filter {
+            (attribute($0, kAXSubroleAttribute) as? String) == kAXStandardWindowSubrole &&
+            (attribute($0, kAXMinimizedAttribute) as? NSNumber)?.boolValue != true
+        }
+        guard windows.count > 1, let index = windows.firstIndex(where: { CFEqual($0, focused) }) else { return nil }
+        target = windows[(index + 1) % windows.count]; action = kAXRaiseAction as CFString
+    }
+    return {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+              let current = element(attribute(app, kAXFocusedWindowAttribute)) ?? element(attribute(app, kAXMainWindowAttribute)),
+              CFEqual(current, focused) else { return false }
+        return AXUIElementPerformAction(target, action) == .success
+    }
+}

@@ -21,8 +21,10 @@ def navigation_intent(transcript: str) -> Optional[str]:
         return "back"
     if text in ("close tab", "close the current tab", "close this tab", "关闭当前标签页"):
         return "close_tab"
-    if text in ("alt tab", "alt-tab", "all tab"):
-        return "tab_right"
+    if text in ("close window", "close this window", "close the current window", "关闭窗口"):
+        return "close_window"
+    if text in ("change window", "change windows", "switch window", "next window", "切换窗口"):
+        return "change_window"
     match = re.fullmatch(r"(?:tab|tap) (left|right)|(?:switch|go|move) to (?:the )?tab (?:on|to) (?:the )?(left|right)", text)
     if match:
         return "tab_" + (match.group(1) or match.group(2))

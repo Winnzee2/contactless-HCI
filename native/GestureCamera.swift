@@ -85,12 +85,12 @@ struct VoiceAction {
     init?(_ json: [String: Any], bounds: CGRect) {
         guard json["type"] as? String == "voice_action",
               let action = json["action"] as? String,
-              ["move_to", "back", "tab_left", "tab_right", "close_tab", "none"].contains(action),
+              ["move_to", "back", "tab_left", "tab_right", "close_tab", "close_window", "change_window", "none"].contains(action),
               let id = json["request_id"] as? String, !id.isEmpty, id.count <= 128 else { return nil }
         self.action = action
         self.requestID = id
         if action == "none" { self.point = nil; return }
-        if ["back", "tab_left", "tab_right", "close_tab"].contains(action) {
+        if ["back", "tab_left", "tab_right", "close_tab", "close_window", "change_window"].contains(action) {
             // Navigation has a fixed meaning, never caller-supplied keys or URLs.
             guard Set(json.keys).isSubset(of: ["type", "action", "request_id", "choice_id"]),
                   json["choice_id"] == nil || json["choice_id"] is String else { return nil }
@@ -867,7 +867,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         seenIDs.append(instruction.requestID)
         if seenIDs.count > 128 { seenIDs.removeFirst() }
         if instruction.action == "none" { return }
-        if ["back", "tab_left", "tab_right", "close_tab"].contains(instruction.action) {
+        if ["back", "tab_left", "tab_right", "close_tab", "close_window", "change_window"].contains(instruction.action) {
             performVoiceNavigation(instruction, choiceID: json["choice_id"] as? String)
             return
         }
@@ -911,6 +911,20 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         guard let application = NSWorkspace.shared.frontmostApplication,
               application.processIdentifier == capture.foregroundPID else {
             fail("The active application changed. Say the command again.")
+            return
+        }
+        if instruction.action == "close_window" || instruction.action == "change_window" {
+            guard let operation = prepareWindowAction(pid: application.processIdentifier, close: instruction.action == "close_window"),
+                  armed, tracked, acceptsVoiceTarget, now() - lastHandTime <= 0.4,
+                  currentCapture(instruction.requestID) != nil else {
+                fail("No available window action. Change window needs another open window in this app.")
+                return
+            }
+            rapidClicks.reset(); targetLock.clear(); targetOverlay.hide(); duplicateOverlay.hide()
+            invalidateTargetContext()
+            guard operation() else { fail("The window changed or did not accept the action."); return }
+            lastActionTime = now(); tactile(.navigation)
+            emit(["type": "action", "source": "voice", "action": instruction.action, "request_id": instruction.requestID])
             return
         }
         let shortcut: [CGEvent]?
@@ -1142,7 +1156,7 @@ func selfTest() -> Bool {
         json["action"] = forbiddenAction
         check(VoiceAction(json, bounds: bounds) == nil, "gesture actions cannot be supplied by voice")
     }
-    for action in ["back", "tab_left", "tab_right", "close_tab"] {
+    for action in ["back", "tab_left", "tab_right", "close_tab", "close_window", "change_window"] {
         let navigation: [String: Any] = ["type": "voice_action", "action": action, "request_id": "navigation-test"]
         check(VoiceAction(navigation, bounds: bounds)?.action == action, "Explicit navigation requires no target coordinates")
         check(VoiceAction(navigation, bounds: bounds)?.point == nil, "Navigation does not position or click the mouse")

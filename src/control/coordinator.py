@@ -66,6 +66,10 @@ class PendingNavigation:
 
 
 NAVIGATION_MESSAGES = {
+    "close_window": {"start": "Closing the active window…", "sent": "Window close requested.",
+                     "retry": "Window close was not confirmed. Try again.", "phrase": "close window"},
+    "change_window": {"start": "Switching app windows…", "sent": "Next app window requested.",
+                      "retry": "Window switch was not confirmed. Try again.", "phrase": "change window"},
     "close_tab": {"start": "Closing the current browser tab…", "sent": "Close-tab shortcut sent.",
                   "retry": "Close tab was not confirmed. Say “close tab” again.", "phrase": "close tab"},
     "back": {"start": "Going back to the previous page…", "sent": "Back navigation sent.",

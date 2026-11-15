@@ -38,6 +38,17 @@ class TestCoordinator(unittest.TestCase):
         self.coordinator.handle({"type": "action", "source": "voice", "request_id": "a", "action": "close_tab"}, source="native")
         self.assertIsNone(self.coordinator.pending_navigation)
 
+    def test_window_commands_need_matching_action_ack(self):
+        for action in ("close_window", "change_window"):
+            self.setUp()
+            self.submit()
+            self.coordinator.handle({"type": "navigation", "request_id": "a", "action": action}, source="worker")
+            self.assertEqual(self.native[-1], {"type": "voice_action", "request_id": "a", "action": action})
+            self.coordinator.handle({"type": "action", "source": "voice", "request_id": "a", "action": "close_tab"}, source="native")
+            self.assertIsNotNone(self.coordinator.pending_navigation)
+            self.coordinator.handle({"type": "action", "source": "voice", "request_id": "a", "action": action}, source="native")
+            self.assertIsNone(self.coordinator.pending_navigation)
+
     def test_target_and_audio_can_arrive_in_either_order(self):
         self.begin()
         self.coordinator.handle({"type": "speech_audio", "request_id": "a", "pcm_base64": "AAA=", "sample_rate": 16000})
