@@ -1,5 +1,11 @@
 # 离线验证记录与复现
 
+## Webcam Pane and Marketing Site
+
+The native build and all 328 native checks passed. A synthetic camera frame with asymmetric corner markers verified full-frame horizontal mirroring behind the hand skeleton. Native panel probes passed for click-through behavior, unchanged focus, and persistence through tracking loss and pause. The camera feed is downsampled for display only; inference still receives full-resolution frames. Local Control was restarted directly and enabled. No new physical hand-accuracy trial is claimed.
+
+The marketing website passed WebKit checks for desktop/mobile horizontal fit, walkthrough interaction, and the source ZIP link. Both viewport layouts were visually inspected. ChatGPT Sites confirmed successful owner-private deployment at https://local-control-contactless.kuzeze.chatgpt.site. Render artifacts are in ignored `.build/verification/marketing/` and `.build/verification/camera-pane/`.
+
 ## The Meridian Offline News Demo
 
 The self-contained newspaper was loaded directly from disk in WKWebView. Automated checks passed for desktop and mobile horizontal fit, full article rendering and scroll length, section filtering, search and its empty state, bookmark add/remove, text-size changes, and browser-history back navigation. Desktop home/article and mobile layouts were visually inspected. The site bundles all text, styles, scripts, and vector artwork; its content security policy blocks network connections. Preview artifacts are in ignored `.build/verification/news/`. This verifies the website, not a new live voice-and-gesture trial.

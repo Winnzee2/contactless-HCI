@@ -28,3 +28,6 @@ models/
 
 # Native desktop build and caches
 .build/
+
+# Dedicated ChatGPT Sites checkout (source mirrored in assets/marketing)
+marketing-site/

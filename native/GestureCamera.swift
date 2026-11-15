@@ -5,6 +5,7 @@ import AVFoundation
 import Vision
 import ScreenCaptureKit
 import ApplicationServices
+import CoreImage
 import CoreMedia
 import CoreText
 import ImageIO
@@ -381,6 +382,7 @@ private struct TargetCapture {
 final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate, AVCaptureVideoDataOutputSampleBufferDelegate {
     let cameraIndex: Int
     let useVoice: Bool
+    private let captionImageContext = CIContext(options: [.cacheIntermediates: false])
     let session = AVCaptureSession()
     let sessionQueue = DispatchQueue(label: "local.control.session")
     let frameQueue = DispatchQueue(label: "local.control.vision")
@@ -775,6 +777,15 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         lastFrameTime = time
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let size = CGSize(width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
+        // Downsample only for presentation. Hand inference still uses the full frame.
+        let thumbnail = CIImage(cvPixelBuffer: pixelBuffer).transformed(by: CGAffineTransform(scaleX: 640 / size.width, y: 640 / size.width))
+        if let image = captionImageContext.createCGImage(thumbnail, from: thumbnail.extent) {
+            DispatchQueue.main.async {
+                guard !self.closing, now() - time < 0.4 else { return }
+                self.sensingOverlay.updateCameraImage(image, videoSize: size, time: time)
+            }
+        }
+
         do {
             try VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:]).perform([request])
             guard let hand = request.results?.first else { DispatchQueue.main.async { self.trackingMiss() }; return }

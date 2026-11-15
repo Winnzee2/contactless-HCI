@@ -189,6 +189,7 @@ private final class VoiceCaptionView: NSView {
     var handStatus = "Paused"
     var handActive = false
     var handJoints: [VNHumanHandPoseObservation.JointName: CGPoint] = [:]
+    var cameraImage: CGImage?
     var videoSize = CGSize(width: 1280, height: 720)
     override var isOpaque: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -213,15 +214,15 @@ private final class VoiceCaptionView: NSView {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
         paragraph.lineSpacing = 3
-        (text as NSString).draw(in: CGRect(x: 16, y: 202, width: bounds.width - 32, height: 44),
+        (text as NSString).draw(in: CGRect(x: 16, y: bounds.height - 86, width: bounds.width - 32, height: 44),
             withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 14, weight: .medium),
                              .foregroundColor: recognized ? red : NSColor.white.withAlphaComponent(0.85),
                              .paragraphStyle: paragraph])
-        (detail as NSString).draw(in: CGRect(x: 16, y: 173, width: bounds.width - 32, height: 25),
+        (detail as NSString).draw(in: CGRect(x: 16, y: bounds.height - 115, width: bounds.width - 32, height: 25),
             withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 9, weight: .regular),
                              .foregroundColor: muted, .paragraphStyle: paragraph])
         let footer = NSBezierPath()
-        footer.move(to: CGPoint(x: 16, y: 165)); footer.line(to: CGPoint(x: bounds.width - 16, y: 165))
+        footer.move(to: CGPoint(x: 16, y: bounds.height - 123)); footer.line(to: CGPoint(x: bounds.width - 16, y: bounds.height - 123))
         NSColor.white.withAlphaComponent(0.1).setStroke(); footer.lineWidth = 0.5; footer.stroke()
         let handColor = handActive ? NSColor(srgbRed: 0.15, green: 0.9, blue: 1, alpha: 0.95) : muted
         handColor.setFill()
@@ -229,22 +230,25 @@ private final class VoiceCaptionView: NSView {
         ("HAND" as NSString).draw(at: CGPoint(x: 29, y: 12),
             withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 9, weight: .medium),
                              .foregroundColor: muted, .kern: 1])
-        let area = CGRect(x: 30, y: 40, width: bounds.width - 60, height: 112)
-        let field = NSBezierPath(roundedRect: area.insetBy(dx: -12, dy: -6), xRadius: 10, yRadius: 10)
-        NSColor.white.withAlphaComponent(0.025).setFill(); field.fill()
-        NSColor.white.withAlphaComponent(0.06).setFill()
-        for x in stride(from: area.minX, through: area.maxX, by: 16) {
-            for y in stride(from: area.minY, through: area.maxY, by: 16) {
-                NSBezierPath(ovalIn: CGRect(x: x, y: y, width: 1, height: 1)).fill()
-            }
+        let area = CGRect(x: 16, y: 38, width: bounds.width - 32, height: bounds.height - 174)
+        let scale = min(area.width / videoSize.width, area.height / videoSize.height)
+        let imageRect = CGRect(x: area.midX - videoSize.width * scale / 2,
+                               y: area.midY - videoSize.height * scale / 2,
+                               width: videoSize.width * scale, height: videoSize.height * scale)
+        NSColor.black.withAlphaComponent(0.65).setFill()
+        NSBezierPath(roundedRect: area, xRadius: 8, yRadius: 8).fill()
+        if let cameraImage, let context = NSGraphicsContext.current?.cgContext {
+            context.saveGState()
+            context.translateBy(x: imageRect.maxX, y: imageRect.minY)
+            context.scaleBy(x: -1, y: 1)
+            context.draw(cameraImage, in: CGRect(origin: .zero, size: imageRect.size))
+            context.restoreGState()
         }
-        let points = handJoints.mapValues { CGPoint(x: (1 - $0.x) * videoSize.width, y: $0.y * videoSize.height) }
-        if let minX = points.values.map({ $0.x }).min(), let maxX = points.values.map({ $0.x }).max(),
-           let minY = points.values.map({ $0.y }).min(), let maxY = points.values.map({ $0.y }).max() {
-            let scale = min(area.width / max(40, maxX - minX), area.height / max(40, maxY - minY))
+        let points = handJoints
+        if !points.isEmpty {
             func location(_ point: CGPoint) -> CGPoint {
-                CGPoint(x: area.midX + (point.x - (minX + maxX) / 2) * scale,
-                        y: area.midY + (point.y - (minY + maxY) / 2) * scale)
+                CGPoint(x: imageRect.minX + (1 - point.x) * imageRect.width,
+                        y: imageRect.minY + point.y * imageRect.height)
             }
             let fingers: [[VNHumanHandPoseObservation.JointName]] = [
                 [.wrist, .thumbCMC, .thumbMP, .thumbIP, .thumbTip],
@@ -262,7 +266,8 @@ private final class VoiceCaptionView: NSView {
                     }
                 }
             }
-            handColor.withAlphaComponent(0.7).setStroke(); skeleton.stroke()
+            NSColor.black.withAlphaComponent(0.8).setStroke(); skeleton.lineWidth = 4; skeleton.stroke()
+            handColor.setStroke(); skeleton.lineWidth = 2; skeleton.stroke()
             for (joint, point) in points {
                 let center = location(point)
                 let radius: CGFloat = joint == .indexTip ? 3.5 : 2
@@ -294,6 +299,7 @@ final class SensingOverlay {
     private var handActive = false
     private var handFeedbackUntil = -Double.infinity
     private var handJoints: [VNHumanHandPoseObservation.JointName: CGPoint] = [:]
+    private var cameraImage: CGImage?
     private var handVideoSize = CGSize(width: 1280, height: 720)
     private var suspensions = 0
 
@@ -307,6 +313,14 @@ final class SensingOverlay {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         view.setAccessibilityElement(false); panel.contentView = view
         return panel
+    }
+
+    /// Uses the existing capture stream; no second camera session or recording.
+    func updateCameraImage(_ image: CGImage, videoSize: CGSize, time: TimeInterval) {
+        precondition(Thread.isMainThread)
+        cameraImage = image
+        handVideoSize = videoSize
+        refresh(time: time)
     }
 
     func updateHandSkeleton(_ joints: [VNHumanHandPoseObservation.JointName: CGPoint],
@@ -385,12 +399,12 @@ final class SensingOverlay {
         } else { ringPanel?.orderOut(nil) }
         if !transcript.isEmpty {
             let usable = screen.visibleFrame.insetBy(dx: 18, dy: 18)
-            let width = min(320, usable.width), height = min(288, usable.height)
+            let width = min(320, usable.width), height = min(336, usable.height)
             let frame = CGRect(x: usable.maxX - width, y: usable.maxY - height, width: width, height: height)
             if captionPanel == nil { captionPanel = panel(view: VoiceCaptionView()) }
             captionPanel?.setFrame(frame, display: false)
             if let view = captionPanel?.contentView as? VoiceCaptionView {
-                view.frame = CGRect(origin: .zero, size: frame.size); view.text = transcript; view.heading = heading; view.detail = detail; view.handStatus = handStatus; view.handActive = handActive; view.handJoints = handJoints; view.videoSize = handVideoSize; view.needsDisplay = true
+                view.frame = CGRect(origin: .zero, size: frame.size); view.text = transcript; view.heading = heading; view.detail = detail; view.handStatus = handStatus; view.handActive = handActive; view.handJoints = handJoints; view.videoSize = handVideoSize; view.cameraImage = cameraImage; view.needsDisplay = true
             }
             if captionPanel?.isVisible == false { captionPanel?.orderFrontRegardless() }
         } else { captionPanel?.orderOut(nil) }

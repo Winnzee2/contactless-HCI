@@ -70,7 +70,7 @@ Commands use explicit application rules rather than arbitrary model-generated ke
 - Dark graphite main interface with a rounded camera view and gesture reference cards.
 - Persistent translucent, click-through speech pane in the upper-right corner.
 - Immediate listening indication, red recognized speech, and separate processing status.
-- Live mirrored hand skeleton, with joint markers, connecting bones, and a highlighted index tip.
+- Full mirrored webcam preview in the floating speech pane, with aligned hand joints, connecting bones, and a highlighted index tip.
 - Hand status for pointing, pinches, scrolling, tracking loss, pause, and successful clicks.
 - Cyan cursor sensing ring, target highlight with lock countdown, and numbered ambiguity circles.
 - Local synthesized cues for target lock, clicks, double-clicks, scrolling, choices, and navigation.
