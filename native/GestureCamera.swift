@@ -149,23 +149,20 @@ struct SpeechClipper {
 }
 
 func recognizeTargets(_ image: CGImage, region: CGRect) throws -> [[String: Any]] {
-    let textRequest = VNRecognizeTextRequest()
-    textRequest.recognitionLevel = .accurate
-    textRequest.recognitionLanguages = ["en-US", "zh-Hans", "zh-Hant"]
-    textRequest.usesLanguageCorrection = true
-    try VNImageRequestHandler(cgImage: image, options: [:]).perform([textRequest])
-    var targets: [[String: Any]] = []
-    for observation in (textRequest.results ?? []).prefix(64) {
-        guard let text = observation.topCandidates(1).first, text.confidence >= 0.3 else { continue }
-        let box = observation.boundingBox
-        targets.append([
-            "id": "target-\(targets.count)", "label": String(text.string.prefix(200)),
-            "x": region.minX + box.midX * region.width,
-            "y": region.minY + (1 - box.midY) * region.height,
-            "width": box.width * region.width, "height": box.height * region.height
-        ])
+    try recognizeScreenTextTargets(image, region: region)
+}
+
+// Both the application and diagnostics use this same read-only discovery path.
+// AX labels cover native controls and named icons; local OCR fills remaining gaps.
+func discoverTargets(region: CGRect, pointer: CGPoint) async -> [[String: Any]] {
+    var image: CGImage?
+    if CGPreflightScreenCaptureAccess() { image = try? await captureScreenRegion(region) }
+    let capturedImage = image
+    return await withCheckedContinuation { continuation in
+        DispatchQueue.global(qos: .userInitiated).async {
+            continuation.resume(returning: collectScreenTargets(image: capturedImage, region: region, pointer: pointer))
+        }
     }
-    return targets
 }
 
 func captureScreenRegion(_ region: CGRect) async throws -> CGImage {
@@ -336,6 +333,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     var rightPinch = PinchLatch()
     var lastRawPoint: CGPoint?
     var targetLock = TargetLock()
+    let targetOverlay = TargetOverlay()
     var seenIDs: [String] = []
     var localMonitor: Any?
     var globalMonitor: Any?
@@ -361,6 +359,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             guard let self = self else { return }
             if now() - self.lastHandTime > 0.4 { self.loseHand() }
             if self.armed && !AXIsProcessTrusted() { self.setArmed(false) }
+            self.targetOverlay.refresh(now: now())
         }
         requestCamera()
     }
@@ -507,6 +506,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         armed = value
         leftPinch.reset(); rightPinch.reset()
         targetLock.clear()
+        targetOverlay.hide()
         mic.setArmed(value && tracked)
         stateLabel.stringValue = value ? "ENABLED · Index finger moves pointer · Escape pauses" : "PAUSED · Pointer and speech actions are disabled"
         toggleButton.title = value ? "Pause pointer" : "Enable pointer"
@@ -565,8 +565,11 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         lastRawPoint = raw
         let target = screenPoint(raw, bounds: screen)
         if let locked = targetLock.resolve(hand: raw, time: time) { pointer = locked }
-        else if let old = pointer { pointer = CGPoint(x: old.x + 0.28 * (target.x - old.x), y: old.y + 0.28 * (target.y - old.y)) }
-        else { pointer = target }
+        else {
+            targetOverlay.hide()
+            if let old = pointer { pointer = CGPoint(x: old.x + 0.28 * (target.x - old.x), y: old.y + 0.28 * (target.y - old.y)) }
+            else { pointer = target }
+        }
         guard let point = pointer else { return }
         if time - lastPointerEvent > 0.05 {
             emit(["type": "pointer", "x": point.x, "y": point.y, "tracked": true])
@@ -586,6 +589,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if tracked { mic.setArmed(false) }
         leftPinch.reset(); rightPinch.reset()
         targetLock.clear(); lastRawPoint = nil
+        targetOverlay.hide()
         pointer = nil
         if tracked {
             emit(["type": "pointer", "tracked": false, "x": 0, "y": 0])
@@ -608,6 +612,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         lastActionTime = now()
         emit(["type": "action", "action": action, "source": "gesture", "x": point.x, "y": point.y])
         targetLock.clear()
+        targetOverlay.hide()
     }
     func readInput() {
         DispatchQueue.global(qos: .utility).async {
@@ -638,8 +643,10 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if instruction.action == "none" { return }
         guard let point = instruction.point else { return }
         guard armed, tracked, now() - lastHandTime <= 0.4, AXIsProcessTrusted(), let anchor = lastRawPoint else { return }
-        targetLock.hold(point, anchor: anchor, time: now()); pointer = point
+        let lockedAt = now()
+        targetLock.hold(point, anchor: anchor, time: lockedAt); pointer = point
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+        targetOverlay.show(point: point, label: json["label"] as? String ?? "Selected target", protectedUntil: lockedAt + 3)
         emit(["type": "pointer", "x": point.x, "y": point.y, "tracked": true])
         emit(["type": "action", "action": "move_to", "source": "voice", "x": point.x, "y": point.y, "request_id": instruction.requestID])
     }
@@ -656,11 +663,6 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
               screen.contains(CGPoint(x: x.doubleValue, y: y.doubleValue)) else {
             fail("No current hand target is available for local text lookup."); return
         }
-        guard CGPreflightScreenCaptureAccess() else {
-            _ = CGRequestScreenCaptureAccess()
-            fail("Allow Screen Recording for Local Control or your terminal in System Settings, then restart to use voice targeting.")
-            return
-        }
         let requestedWidth = (json["width"] as? NSNumber)?.doubleValue ?? 640
         let requestedHeight = (json["height"] as? NSNumber)?.doubleValue ?? 400
         guard requestedWidth.isFinite, requestedHeight.isFinite else { fail("Invalid screenshot region."); return }
@@ -669,22 +671,22 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let region = CGRect(x: clamp(x.doubleValue - width / 2, screen.minX, screen.maxX - width),
                             y: clamp(y.doubleValue - height / 2, screen.minY, screen.maxY - height),
                             width: width, height: height)
+        // Keep the previous target's label out of the next OCR snapshot.
+        targetOverlay.hide()
         Task {
-            do {
-                let image = try await captureScreenRegion(region)
-                // OCR runs on a separate queue; only text and bounding boxes leave this helper.
-                DispatchQueue.global(qos: .userInitiated).async {
-                    do {
-                        let targets = try recognizeTargets(image, region: region)
-                        emit(["type": "targets", "request_id": id, "targets": targets,
-                              "region": ["x": region.minX, "y": region.minY, "width": region.width, "height": region.height]])
-                    } catch { emit(["type": "error", "request_id": id, "message": "Local OCR failed: \(error.localizedDescription)"]) }
+            let targets = await discoverTargets(region: region, pointer: CGPoint(x: x.doubleValue, y: y.doubleValue))
+            if targets.isEmpty && !CGPreflightScreenCaptureAccess() {
+                DispatchQueue.main.async {
+                    _ = CGRequestScreenCaptureAccess()
+                    fail("No named controls found here. Allow Screen Recording to also search visible text, then restart.")
                 }
-            } catch {
-                emit(["type": "error", "request_id": id, "message": "Local screen capture failed: \(error.localizedDescription)"])
+                return
             }
+            emit(["type": "targets", "request_id": id, "targets": targets,
+                  "region": ["x": region.minX, "y": region.minY, "width": region.width, "height": region.height]])
         }
     }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool { shutdown(); return false }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if !closing { shutdown(); return .terminateCancel }
@@ -766,6 +768,18 @@ func selfTest() -> Bool {
     let audio = clipper.process([Float](repeating: 0, count: 600))
     check(audio.count == 1 && audio.first?["type"] as? String == "speech_audio", "silence ends clip")
     check(clipper.requestID == nil && clipper.recording.isEmpty, "clip state resets")
+    let targetTests = screenTargetGeometrySelfTest()
+    tests += targetTests.tests
+    if !targetTests.failures.isEmpty {
+        fputs("Screen target self-test failed: \(targetTests.failures.joined(separator: "; "))\n", stderr)
+        exit(1)
+    }
+    let overlayTests = targetOverlayGeometrySelfTest()
+    tests += overlayTests.tests
+    if !overlayTests.failures.isEmpty {
+        fputs("Target overlay self-test failed: \(overlayTests.failures.joined(separator: "; "))\n", stderr)
+        exit(1)
+    }
     emit(["type": "self_test", "passed": true, "tests": tests])
     return true
 }
@@ -879,52 +893,89 @@ func screenSelfTest(outputURL: URL? = nil) async throws {
           "region": ["x": region.minX, "y": region.minY, "width": region.width, "height": region.height]])
 }
 
-signal(SIGPIPE, SIG_IGN)
-let arguments = Array(CommandLine.arguments.dropFirst())
-var cameraIndex = 0
-if let index = arguments.firstIndex(of: "--camera") {
-    guard arguments.indices.contains(index + 1), let number = Int(arguments[index + 1]), number >= 0 else {
-        fputs("--camera requires a non-negative camera index\n", stderr); exit(2)
+func targetsDiagnostic(point: CGPoint) async throws {
+    let screen = CGDisplayBounds(CGMainDisplayID())
+    guard point.x.isFinite, point.y.isFinite, screen.contains(point) else {
+        throw NSError(domain: "LocalControl", code: 20, userInfo: [NSLocalizedDescriptionKey: "Target coordinates must be on the primary display."])
     }
-    cameraIndex = number
-}
-if arguments.contains("--self-test") { _ = selfTest(); exit(0) }
-if arguments.contains("--ocr-self-test") {
-    do { try ocrSelfTest(); exit(0) }
-    catch { emit(["type": "error", "message": error.localizedDescription]); exit(1) }
-}
-if arguments.contains("--camera-self-test") {
-    do { try cameraSelfTest(index: cameraIndex); exit(0) }
-    catch { emit(["type": "error", "message": error.localizedDescription]); exit(1) }
-}
-if arguments.contains("--screen-self-test") {
-    var outputURL: URL?
-    if let index = arguments.firstIndex(of: "--capture-output") {
-        guard arguments.indices.contains(index + 1) else { fputs("--capture-output needs a PNG path\n", stderr); exit(2) }
-        outputURL = URL(fileURLWithPath: arguments[index + 1])
+    guard AXIsProcessTrusted() || CGPreflightScreenCaptureAccess() else {
+        throw NSError(domain: "LocalControl", code: 21, userInfo: [NSLocalizedDescriptionKey: "Grant Accessibility or Screen Recording before inspecting screen targets."])
     }
-    Task {
-        do { try await screenSelfTest(outputURL: outputURL); exit(0) }
-        catch { emit(["type": "error", "message": error.localizedDescription]); exit(1) }
+    let width = min(720, screen.width), height = min(420, screen.height)
+    let region = CGRect(x: clamp(point.x - width / 2, screen.minX, screen.maxX - width),
+                        y: clamp(point.y - height / 2, screen.minY, screen.maxY - height),
+                        width: width, height: height)
+    let targets = await discoverTargets(region: region, pointer: point)
+    let foreground = NSWorkspace.shared.frontmostApplication
+    emit(["type": "targets_diagnostic", "mouse_events": 0,
+          "accessibility": AXIsProcessTrusted(), "screen_recording": CGPreflightScreenCaptureAccess(),
+          "foreground_app": ["name": foreground?.localizedName ?? "", "bundle_id": foreground?.bundleIdentifier ?? ""],
+          "region": ["x": region.minX, "y": region.minY, "width": region.width, "height": region.height],
+          "targets": targets])
+}
+
+@main
+struct GestureCameraProgram {
+    static func main() {
+        signal(SIGPIPE, SIG_IGN)
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        var cameraIndex = 0
+        if let index = arguments.firstIndex(of: "--camera") {
+            guard arguments.indices.contains(index + 1), let number = Int(arguments[index + 1]), number >= 0 else {
+                fputs("--camera requires a non-negative camera index\n", stderr); exit(2)
+            }
+            cameraIndex = number
+        }
+        if let index = arguments.firstIndex(of: "--targets-at") {
+            guard arguments.indices.contains(index + 2), let x = Double(arguments[index + 1]), let y = Double(arguments[index + 2]) else {
+                fputs("--targets-at requires screen X and Y coordinates\n", stderr); exit(2)
+            }
+            Task {
+                do { try await targetsDiagnostic(point: CGPoint(x: x, y: y)); exit(0) }
+                catch { emit(["type": "error", "message": error.localizedDescription]); exit(1) }
+            }
+            RunLoop.main.run()
+            exit(1)
+        }
+        if arguments.contains("--self-test") { _ = selfTest(); exit(0) }
+        if arguments.contains("--ocr-self-test") {
+            do { try ocrSelfTest(); exit(0) }
+            catch { emit(["type": "error", "message": error.localizedDescription]); exit(1) }
+        }
+        if arguments.contains("--camera-self-test") {
+            do { try cameraSelfTest(index: cameraIndex); exit(0) }
+            catch { emit(["type": "error", "message": error.localizedDescription]); exit(1) }
+        }
+        if arguments.contains("--screen-self-test") {
+            var outputURL: URL?
+            if let index = arguments.firstIndex(of: "--capture-output") {
+                guard arguments.indices.contains(index + 1) else { fputs("--capture-output needs a PNG path\n", stderr); exit(2) }
+                outputURL = URL(fileURLWithPath: arguments[index + 1])
+            }
+            Task {
+                do { try await screenSelfTest(outputURL: outputURL); exit(0) }
+                catch { emit(["type": "error", "message": error.localizedDescription]); exit(1) }
+            }
+            RunLoop.main.run()
+            exit(1)
+        }
+        if arguments.contains("--check") {
+            let devices = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera], mediaType: .video, position: .unspecified).devices
+            emit(["type": "check", "camera_authorization": authorizationName(AVCaptureDevice.authorizationStatus(for: .video)),
+                  "microphone_authorization": authorizationName(AVCaptureDevice.authorizationStatus(for: .audio)),
+                  "accessibility": AXIsProcessTrusted(), "screen_recording": CGPreflightScreenCaptureAccess(), "camera_count": devices.count,
+                  "cameras": devices.enumerated().map { ["index": $0.offset, "name": $0.element.localizedName] }])
+            exit(0)
+        }
+        let app = NSApplication.shared
+        app.setActivationPolicy(.regular)
+        let delegate = CameraController(cameraIndex: cameraIndex, useVoice: arguments.contains("--voice"))
+        app.delegate = delegate
+        let menu = NSMenu()
+        let item = NSMenuItem()
+        let submenu = NSMenu()
+        submenu.addItem(withTitle: "Quit Local Control", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        item.submenu = submenu; menu.addItem(item); app.mainMenu = menu
+        withExtendedLifetime(delegate) { app.run() }
     }
-    RunLoop.main.run()
-    exit(1)
 }
-if arguments.contains("--check") {
-    let devices = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera], mediaType: .video, position: .unspecified).devices
-    emit(["type": "check", "camera_authorization": authorizationName(AVCaptureDevice.authorizationStatus(for: .video)),
-          "microphone_authorization": authorizationName(AVCaptureDevice.authorizationStatus(for: .audio)),
-          "accessibility": AXIsProcessTrusted(), "screen_recording": CGPreflightScreenCaptureAccess(), "camera_count": devices.count,
-          "cameras": devices.enumerated().map { ["index": $0.offset, "name": $0.element.localizedName] }])
-    exit(0)
-}
-let app = NSApplication.shared
-app.setActivationPolicy(.regular)
-let delegate = CameraController(cameraIndex: cameraIndex, useVoice: arguments.contains("--voice"))
-app.delegate = delegate
-let menu = NSMenu()
-let item = NSMenuItem()
-let submenu = NSMenu()
-submenu.addItem(withTitle: "Quit Local Control", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-item.submenu = submenu; menu.addItem(item); app.mainMenu = menu
-app.run()

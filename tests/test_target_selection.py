@@ -11,9 +11,29 @@ from control.bonsai import BonsaiClient, BonsaiError, SelectedTarget, normalize_
 
 
 class TestTargetSelection(unittest.TestCase):
+    def choose_label(self, text, labels, chosen_label):
+        """Simulate a model choice; exercise the real transport/ID validation path."""
+        client = BonsaiClient('http://127.0.0.1:1234', 'bonsai-local')
+        options = [{"id": f"native-{index}", "label": label}
+                   for index, label in enumerate(labels)]
+        def reply(route, payload):
+            data = json.loads(payload['messages'][1]['content'])
+            self.assertCountEqual([item['label'] for item in data['candidates']], labels)
+            chosen = next(item['id'] for item in data['candidates'] if item['label'] == chosen_label)
+            return {"choices": [{"message": {"content": json.dumps({"target_id": chosen})}}]}
+        with patch.object(client, '_request', side_effect=reply):
+            return client.select_target(text, options).target_id
+
     def test_duplicate_matching_labels_are_ambiguous_even_if_model_picks_one(self):
         options = [{"id":"a","label":"Codex"}, {"id":"b","label":"CODEX"}]
         self.assertIsNone(parse_target('{"target_id":"a"}', options).target_id)
+
+    def test_duplicate_labels_ignore_punctuation_width_and_conjunction_spelling(self):
+        for labels in (("Save As…", "SAVE AS"), ("Ｄｏｗｎｌｏａｄｓ", "Downloads"),
+                       ("Privacy & Security", "Privacy and Security"), ("下载 Downloads", "下载Downloads")):
+            with self.subTest(labels=labels):
+                options = [{"id": str(index), "label": label} for index, label in enumerate(labels)]
+                self.assertIsNone(parse_target('{"target_id":"0"}', options).target_id)
 
     def test_only_id_and_label_cross_model_boundary(self):
         options = [{"id":"a","label":" Codex ","x":100,"y":200,"screenshot":"private"}]
@@ -50,9 +70,9 @@ class TestTargetSelection(unittest.TestCase):
         def reply(route, payload):
             data = json.loads(payload['messages'][1]['content'])
             self.assertEqual(data['transcript'], 'Finder')
-            self.assertEqual([o['label'] for o in data['candidates']], ['Codex','Finder','A long instruction near the buttons'])
+            self.assertEqual([o['label'] for o in data['candidates']], ['Finder','Codex','A long instruction near the buttons'])
             self.assertEqual([o['id'] for o in data['candidates']], ['0','1','2'])
-            return {"choices":[{"finish_reason":"stop","message":{"content":'{"target_id":"1"}'}}]}
+            return {"choices":[{"finish_reason":"stop","message":{"content":'{"target_id":"0"}'}}]}
         with patch.object(client, '_request', side_effect=reply):
             self.assertEqual(client.select_target('finder.', options).target_id, 'target-12')
 
@@ -79,10 +99,108 @@ class TestTargetSelection(unittest.TestCase):
         response = {"choices":[{"message":{"content":'{"target_id":"0"}'}}]}
         with patch.object(client, '_request', return_value=response):
             self.assertIsNone(client.select_target('My hand', [{"id":"title","label":"Local Control · Hand + Voice"}]).target_id)
-            self.assertIsNone(client.select_target('finder', [{"id":"a","label":"Codex"},{"id":"b","label":"Finder"}]).target_id)
+            self.assertIsNone(self.choose_label('finder', ['Codex', 'Finder'], 'Codex'))
             self.assertEqual(client.select_target('打开Codex那个标签', [{"id":"a","label":"Codex"}]).target_id, 'a')
             self.assertEqual(client.select_target('open the Safari tab', [{"id":"b","label":"Safari"}]).target_id, 'b')
             self.assertIsNone(client.select_target('cat', [{"id":"b","label":"category"}]).target_id)
+
+    def test_real_interface_names_allow_request_wrappers_and_label_metadata(self):
+        cases = (
+            ("Could you please click the Save As… button?", "Save As…"),
+            ("open Downloads", "Downloads — 12 items"),
+            ("click Privacy", "Privacy & Security"),
+            ("click Privacy and Security", "Privacy & Security"),
+            ("open Extensions", "Extensions (4 installed)"),
+            ("open the New Tab", "New Tab"),
+            ("New Tab", "New Tab — Start browsing"),
+            ("go back", "Back"),
+            ("click the Search button", "Search (⌘F)"),
+            ("please click Close", "Close current tab"),
+            ("move the pointer to Search", "Search"),
+            ("Save As", "Save As… ⇧⌘S"),
+            ("go to Résumé", "Résumé — Updated yesterday"),
+            ("帮我打开Downloads那个标签", "Downloads — 12 items"),
+            ("请点击隐私与安全", "隐私与安全"),
+            ("点击下载 Downloads 文件夹", "下载 Downloads — 12 项"),
+            ("click 隐私与安全 button", "隐私与安全"),
+            ("open 下载", "下载 — 12 项"),
+        )
+        for text, label in cases:
+            with self.subTest(text=text, label=label):
+                self.assertEqual(self.choose_label(text, [label, "Unrelated help documentation"], label), 'native-0')
+
+    def test_conversation_questions_compound_actions_and_substrings_are_vetoed(self):
+        cases = (
+            ("I talked about Privacy yesterday", "Privacy & Security"),
+            ("I like Save As", "Save As…"),
+            ("How do I open Downloads?", "Downloads — 12 items"),
+            ("Can you tell me whether Extensions are safe?", "Extensions"),
+            ("open Downloads then click Help", "Downloads — 12 items"),
+            ("open Downloads and Extensions", "Downloads — 12 items"),
+            ("click Privacy and then close the window", "Privacy & Security"),
+            ("我们刚刚聊到Downloads", "Downloads — 12 items"),
+            ("如果打开Downloads会怎样", "Downloads — 12 items"),
+            ("click cat", "catégorie"),
+            ("click Search", "Research"),
+            ("Save", "Don't Save"),
+            ("go back", "Forward"),
+        )
+        for text, label in cases:
+            with self.subTest(text=text, label=label):
+                self.assertIsNone(self.choose_label(text, [label], label))
+
+    def test_short_names_shared_by_multiple_controls_are_ambiguous(self):
+        for text, labels in (
+            ("open Downloads", ["Downloads — 12 items", "Downloads — 3 items"]),
+            ("click Privacy", ["Privacy & Security", "Privacy settings"]),
+            ("click Close", ["Close current tab", "Close window"]),
+            ("打开下载", ["下载文件", "下载记录"]),
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(self.choose_label(text, labels, labels[0]))
+
+    def test_full_requested_names_take_priority_over_partial_names(self):
+        cases = (
+            ("click Save As", ["Save", "Save As…", "Save As Template"], "Save As…"),
+            ("open Downloads", ["Downloads — 12 items", "Downloads"], "Downloads"),
+            ("click Privacy", ["Privacy & Security", "Privacy"], "Privacy"),
+            ("open the New Tab", ["New Window", "New Tab — Start browsing"], "New Tab — Start browsing"),
+            ("open the New Tab", ["New", "New Tab — Start browsing"], "New Tab — Start browsing"),
+            ("click Search button", ["Search", "Search button — Find in this page"], "Search button — Find in this page"),
+            ("打开下载标签", ["下载", "下载标签 — 12 项"], "下载标签 — 12 项"),
+            ("Open File", ["File", "Open File"], "Open File"),
+        )
+        for text, labels, intended in cases:
+            with self.subTest(text=text):
+                self.assertEqual(self.choose_label(text, labels, intended), f'native-{labels.index(intended)}')
+                for other in labels:
+                    if other != intended:
+                        self.assertIsNone(self.choose_label(text, labels, other))
+
+    def test_model_null_is_never_replaced_with_a_local_matching_target(self):
+        client = BonsaiClient('http://127.0.0.1:1234', 'bonsai-local')
+        response = {"choices": [{"message": {"content": '{"target_id":null}'}}]}
+        with patch.object(client, '_request', return_value=response) as request:
+            self.assertIsNone(client.select_target('open Downloads', [
+                {"id": "downloads", "label": "Downloads — 12 items"}]).target_id)
+            request.assert_called_once()
+
+    def test_supported_names_are_presented_first_without_removing_other_candidates(self):
+        client = BonsaiClient('http://127.0.0.1:1234', 'bonsai-local')
+        for transcript, label in (("格式", "格式"), ("open Downloads", "Downloads — 12 items")):
+            options = [{"id": f"word-{index}", "label": word}
+                       for index, word in enumerate(["a", "is", "the", "or", "Some document prose"])]
+            options.append({"id": "actual-control", "label": label})
+            def reply(route, payload):
+                data = json.loads(payload['messages'][1]['content'])
+                self.assertEqual(data['candidates'][0], {"id": "0", "label": label})
+                self.assertCountEqual([item['label'] for item in data['candidates']],
+                                      [item['label'] for item in options])
+                self.assertEqual(len({item['id'] for item in data['candidates']}), len(options))
+                return {"choices": [{"message": {"content": '{"target_id":null}'}}]}
+            with self.subTest(transcript=transcript), patch.object(client, '_request', side_effect=reply) as request:
+                self.assertIsNone(client.select_target(transcript, options).target_id)
+                request.assert_called_once()
 
 
 if __name__ == '__main__':

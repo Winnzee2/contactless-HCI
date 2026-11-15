@@ -69,7 +69,9 @@ class TestDesktopReadiness(unittest.TestCase):
             root = Path(directory)
             app = root / "app"
             app.write_text("binary")
-            paths = [root / "native/GestureCamera.swift", root / "native/Info.plist", root / "scripts/build_gesture_app.sh"]
+            paths = [root / "native/GestureCamera.swift", root / "native/ScreenTargets.swift",
+                     root / "native/TargetOverlay.swift",
+                     root / "native/Info.plist", root / "scripts/build_gesture_app.sh"]
             for path in paths:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("source")
@@ -77,7 +79,7 @@ class TestDesktopReadiness(unittest.TestCase):
             os.utime(app, (20, 20))
             with patch.object(desktop, "ROOT", root), patch.object(desktop, "APP", app):
                 self.assertTrue(desktop.app_is_current())
-                os.utime(paths[0], (30, 30))
+                os.utime(paths[1], (30, 30))
                 self.assertFalse(desktop.app_is_current())
 
 

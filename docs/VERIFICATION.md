@@ -1,5 +1,7 @@
 # 离线验证记录与复现
 
+The later [cross-application verification](CROSS_APP.md) adds five successful Wi-Fi-off target-selection checks in Finder, TextEdit, and Safari, plus the target highlight/countdown. The current regression totals are 91 Python checks and 51 native checks. The earlier human-input and component records below retain their original scope; they do not substitute for new physical gesture tests in those applications.
+
 ## 已完成的 Wi-Fi 关闭实测
 
 **2026-11-14**，在这台 Mac 上实际关闭 Wi-Fi 后完成以下检查，结束后恢复 Wi-Fi。包含 3 秒目标保护和最新 Bonsai 选择处理的版本，已于 **23:44:35 UTC** 再次通过同样的检查：

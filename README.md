@@ -1,8 +1,10 @@
 # Local Control — Offline Hand Mouse and Voice Targeting
 
-On an Apple Silicon Mac, move the pointer with your index finger, pinch to click, and name nearby visible text to target it. Camera recognition, speech transcription, screen text recognition, and Bonsai inference all run locally.
+On an Apple Silicon Mac, move the pointer with your index finger, pinch to click, and name a nearby visible control to target it across applications. Camera recognition, speech transcription, accessibility inspection, screen text recognition, and Bonsai inference all run locally. No browser extension or integration with a particular website is required.
 
 **Voice positions the pointer; it never clicks.** For example, point near a visible label and say “Codex.” The pointer moves to the recognized target and locks in place. For the first **3 seconds**, finger movement cannot pull it away, giving you time to pinch your thumb and middle finger for a left click.
+
+A click-through highlight shows the selected target and the remaining hold time. After the countdown, it shows “Pinch to click” while the target remains locked. It disappears when you click, release the lock, pause, lose hand tracking, or begin another voice search.
 
 ## Launch
 
@@ -26,7 +28,7 @@ On first use, open **System Settings → Privacy & Security** and grant permissi
 
 - **Camera**: recognize your hand.
 - **Microphone**: capture speech for transcription.
-- **Accessibility**: move the pointer and send clicks.
+- **Accessibility**: read visible control names, move the pointer, and send clicks.
 - **Screen Recording**: read visible text near the pointer.
 
 You may need to quit and restart after changing permissions. The app starts **PAUSED**. Click **Enable pointer** in the preview window, or press Space while that window is active.
@@ -36,7 +38,7 @@ You may need to quit and restart after changing permissions. The app starts **PA
 | Move your index finger | Move the pointer on the primary display |
 | Pinch thumb + middle finger | Left click; release before triggering another click |
 | Pinch thumb + ring finger | Right click |
-| Say nearby text, such as “Codex” | Argmax transcription → local OCR → Bonsai selection → pointer positioning; no click |
+| Name a nearby control, such as “Codex” or “open Reports” | Argmax transcription → accessibility labels and local OCR → Bonsai selection → pointer positioning; no click |
 | Move your finger during the first 3 seconds after targeting | Keep the pointer on the target while you prepare a pinch |
 | Move your hand deliberately after 3 seconds | Release the lock; a steady hand keeps the target locked |
 | Space, while the control window is active | Enable or pause |
@@ -89,14 +91,18 @@ Argmax inference processes are denied network access. The Bonsai startup script 
 
 **Verification on November 14, 2026:** With Wi-Fi switched off, the camera, real screen OCR, and a synthesized-speech pipeline using real Argmax, Bonsai, and the coordinator passed their checks and produced the correct `Codex` movement instruction. Wi-Fi was restored afterward. In a separate live test with **Wi-Fi on**, a user said “Codex,” the pointer moved to the target, and hand gestures performed left and right clicks. Saying “Safari” followed by a left-click gesture also worked, and the local browser test board received the clicks. These tests used different network states and inputs; a complete live demonstration video with Wi-Fi off has not yet been recorded. See the [verification record](docs/VERIFICATION.md) for evidence and the [demo guide](docs/DEMO.md) for the procedure.
 
+The current build also passed **five actual target-selection checks with Wi-Fi off** in Finder, TextEdit, and Safari. Those checks used supplied transcript text and verified local model selection and target coordinates without clicking. See the [cross-application record](docs/CROSS_APP.md) for the cases and reproduction commands.
+
 ## Targeting Scope and Current Limitations
 
-- Targets come from an OCR region of approximately **720 × 420** screen points around the pointer when speech begins. Move near the target first.
-- Bonsai selects IDs for text already recognized by OCR; it does not generate mouse coordinates.
+- Targets come from a region of approximately **720 × 420** screen points around the pointer when speech begins. Move near the target first.
+- macOS Accessibility supplies visible names and bounds for native controls, browser tabs, links, menus, folder icons, and named toolbar icons. Local Vision OCR supplies visible text when accessibility labels are unavailable. Individual word geometry avoids aiming between neighboring labels.
+- The scanner checks visibility, keeps bounded traversal times, and combines accessibility and OCR readings of the same control. The demo board is an optional test fixture; no app names or website selectors are required for discovery.
+- Bonsai selects an existing candidate ID; it does not generate mouse coordinates. English and Chinese request phrases and longer labels with shortcuts or subtitles are supported. Candidate ordering helps the small local model handle busy screens, but every candidate still reaches Bonsai.
 - Duplicate labels, missing text, ambiguous matches, and expired results do not trigger targeting.
-- Targeting supports currently visible text. It does not recognize arbitrary icons across the screen, find hidden labels, or navigate interfaces autonomously.
+- Use the displayed label or accessible control name. Unlabeled icons, inaccessible custom canvases, hidden content, and protected screens cannot be targeted reliably by voice. Ordinary hand pointer movement and pinch clicks remain available.
 - The prototype targets the primary display. Occluded windows, small text, lighting, hand posture, and noise can affect recognition.
-- Live testing has covered `Codex` and `Safari` on the local test board. Use the [two-minute demo checklist](docs/DEMO.md) to verify other applications, target layouts, and a complete recording with Wi-Fi off.
+- See the [cross-application checks](docs/CROSS_APP.md) for real-app verification and a reusable diagnostic. Compatibility depends on what each application exposes; a finite test set cannot establish support for every control in every app.
 
 ## Standalone Text-Only Transcription Interface
 
@@ -132,6 +138,7 @@ The second command requires prepared `tiny.en` and `base.en` models and permissi
 - [System architecture and data boundaries](docs/ARCHITECTURE.md)
 - [Offline acceptance checks and hackathon demo script](docs/DEMO.md)
 - [Verified scope and reproduction steps](docs/VERIFICATION.md)
+- [Cross-application targeting and verification](docs/CROSS_APP.md)
 - [Offline setup for the standalone speech module](docs/OFFLINE_SETUP.md)
 
 Dependencies: [Argmax WhisperKit](https://github.com/argmaxinc/argmax-oss-swift), [Apple Vision](https://developer.apple.com/documentation/vision), and the locally installed PrismML Bonsai-2 model and LM Studio MLX runtime.

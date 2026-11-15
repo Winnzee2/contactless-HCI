@@ -27,7 +27,7 @@ def app_is_current():
     if not APP.is_file():
         return False
     built_at = APP.stat().st_mtime_ns
-    inputs = (ROOT / "native/GestureCamera.swift", ROOT / "native/Info.plist",
+    inputs = (ROOT / "native/GestureCamera.swift", ROOT / "native/ScreenTargets.swift", ROOT / "native/TargetOverlay.swift", ROOT / "native/Info.plist",
               ROOT / "scripts/build_gesture_app.sh")
     return all(path.is_file() and path.stat().st_mtime_ns <= built_at for path in inputs)
 

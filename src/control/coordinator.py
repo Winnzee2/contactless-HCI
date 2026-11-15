@@ -183,7 +183,7 @@ class Coordinator:
             if search.targets is not None and search.audio is not None and not search.submitted:
                 if not search.targets:
                     self.pending.pop(search.request_id, None)
-                    self.status("No screen text found nearby. Check Screen Recording permission.")
+                    self.status("No named controls or readable text found nearby. Point closer to a label.")
                     return
                 search.submitted = True
                 self.worker_request = search.request_id
