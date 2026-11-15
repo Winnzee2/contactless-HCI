@@ -46,7 +46,6 @@ You may need to quit and restart after changing permissions. The app starts **PA
 | Hold thumb + middle finger together for about **0.7 seconds** | One double-click at the pinch position; release before triggering another click |
 | Pinch thumb + ring finger | Right click |
 | Hold thumb and pinky together, then move your hand up/down | Scroll up/down under the pointer; release to resume pointer movement |
-| Clench a fist briefly, then fully open your hand | Show the current desktop's windows in Mission Control |
 | Name a nearby control, such as “Codex” or “open Reports” | Argmax transcription → accessibility labels and local OCR → Bonsai selection → pointer positioning; no click |
 | Say **“last page”** | Go back to the previous page in the active browser or the previously visited folder in Finder, without moving or clicking the pointer |
 | Say **“tab left”** or **“tab right”** | Switch to the adjacent tab on that side in the active browser window, even when tab names are truncated |
@@ -64,9 +63,8 @@ With control enabled and your hand visible, say **“last page”** to use Back 
 
 With a browser window active, say **“tab left”** or **“tab right”** to switch one tab in that direction. Keep control enabled and your hand visible. These complete utterances use the browser's previous/next-tab shortcut, so they work without reading the tab titles. They clear numbered choices and the pointer lock, send no click, and run locally. First/last-tab behavior follows the browser's normal tab cycling. Tab switching applies to browsers; Finder continues to support **“last page”** for folder history.
 
-For Mission Control, hold a closed fist for about **0.35 seconds**, then open your hand within **2 seconds** and keep it open briefly. The gesture cancels pending voice targeting and does not send a mouse click. A short cooldown prevents repeated triggers. Both new gestures run locally and also work in `--gesture-only` mode.
+The fist-to-Mission-Control gesture is disabled. Hand tracking uses the full camera frame at up to 30 updates per second, per-landmark adaptive smoothing, and confidence hysteresis. Brief tracking gaps hold the current state for up to 150 ms without generating actions; longer gaps reset gesture recognition.
 
-Pointer movement and pinch clicks resume after the **0.75-second opening transition**, while the window overview remains open. A delayed macOS launch callback cannot keep gesture control locked.
 
 Pausing or losing reliable hand tracking cancels an unfinished gesture and clears the target lock immediately, including during the 3-second protection period. Open your fingers before starting another pinch after a pause or tracking loss.
 

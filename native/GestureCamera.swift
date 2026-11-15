@@ -366,6 +366,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     var closing = false
     var pointer: CGPoint?
     var lastHandTime = -Double.infinity
+    var landmarkFilter = HandLandmarkFilter() // Used only on frameQueue.
     var lastFrameTime = -Double.infinity
     var lastPointerEvent = -Double.infinity
     var lastActionTime = -Double.infinity
@@ -373,11 +374,9 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     var scrollPinch = ScrollPinchLatch()
     var leftPinch = HoldPinchLatch()
     var rightPinch = PinchLatch()
-    var fistOpen = FistOpenLatch()
     var pinchPoint: CGPoint?
     var pinchApproach = PinchApproachLatch()
     var gestureBusy = false
-    var missionControlTransition = MissionControlTransition()
     var lastRawPoint: CGPoint?
     var targetLock = TargetLock()
     let targetOverlay = TargetOverlay()
@@ -437,7 +436,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         stateLabel.font = .systemFont(ofSize: 18, weight: .semibold)
         speechLabel = NSTextField(wrappingLabelWithString: useVoice ? "Voice is preparing locally." : "Camera-only mode. Voice capture is off.")
         speechLabel.maximumNumberOfLines = 3
-        let hint = NSTextField(wrappingLabelWithString: "Index: move · Thumb + middle: release to click, hold 0.7s to double-click · Thumb + ring: right click\nThumb + pinky: hold and move up/down to scroll\nFist, then open hand: show windows · Space: enable/pause · Escape: pause · Q: quit")
+        let hint = NSTextField(wrappingLabelWithString: "Index: move · Thumb + middle: release to click, hold 0.7s to double-click · Thumb + ring: right click\nThumb + pinky: hold and move up/down to scroll\nSpace: enable/pause · Escape: pause · Q: quit")
         hint.textColor = .secondaryLabelColor
         toggleButton = NSButton(title: "Enable pointer", target: self, action: #selector(toggle))
         toggleButton.bezelStyle = .rounded
@@ -597,8 +596,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         armed = value
         if !value { sensingOverlay.clear() }
         scrollPinch.reset(); leftPinch.reset(); rightPinch.reset()
-        fistOpen.reset(); pinchApproach.reset(); pinchPoint = nil; gestureBusy = false
-        missionControlTransition.cancel()
+        pinchApproach.reset(); pinchPoint = nil; gestureBusy = false
         targetLock.clear()
         targetOverlay.hide()
         invalidateTargetContext()
@@ -648,7 +646,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
     }
     var acceptsVoiceTarget: Bool {
-        !gestureBusy && !missionControlTransition.blocksInput(time: now()) && now() - lastActionTime >= 0.5
+        !gestureBusy && now() - lastActionTime >= 0.5
     }
     func publishPointer(_ point: CGPoint, time: Double) {
         sensingOverlay.updateCursor(armed && tracked ? point : nil, time: time)
@@ -659,27 +657,27 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         let time = now()
-        guard time - lastFrameTime >= 0.05 else { return }
+        guard time - lastFrameTime >= 1.0 / 30.0 else { return }
         lastFrameTime = time
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let size = CGSize(width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
         do {
             try VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:]).perform([request])
-            guard let hand = request.results?.first else { DispatchQueue.main.async { self.loseHand() }; return }
+            guard let hand = request.results?.first else { DispatchQueue.main.async { self.trackingMiss() }; return }
             let points = try hand.recognizedPoints(.all)
-            guard let index = points[.indexTip], let thumb = points[.thumbTip],
-                  index.confidence >= 0.35, thumb.confidence >= 0.35 else {
-                DispatchQueue.main.async { self.loseHand() }; return
+            let samples = points.mapValues { HandLandmarkSample(point: $0.location, confidence: Double($0.confidence)) }
+            let visibleJoints = landmarkFilter.update(samples, time: time)
+            guard let index = visibleJoints[.indexTip], let thumb = visibleJoints[.thumbTip] else {
+                DispatchQueue.main.async { self.trackingMiss() }; return
             }
-            let visibleJoints = points.filter { $0.value.confidence >= 0.35 }.mapValues { $0.location }
             let palm = pinchPalmScale(joints: visibleJoints, size: size)
-            guard palm > 0.015 * size.height else { DispatchQueue.main.async { self.loseHand() }; return }
+            guard palm > 0.015 * size.height else { DispatchQueue.main.async { self.trackingMiss() }; return }
             func ratio(_ joint: VNHumanHandPoseObservation.JointName) -> Double {
                 guard let tip = visibleJoints[joint] else { return .infinity }
-                return imageDistance(tip, thumb.location, size: size) / palm
+                return imageDistance(tip, thumb, size: size) / palm
             }
             let leftRatio = ratio(.middleTip), rightRatio = ratio(.ringTip)
-            DispatchQueue.main.async { self.observe(index.location, leftRatio: leftRatio, rightRatio: rightRatio, time: time, videoSize: size, joints: visibleJoints) }
+            DispatchQueue.main.async { self.observe(index, leftRatio: leftRatio, rightRatio: rightRatio, time: time, videoSize: size, joints: visibleJoints) }
         } catch {
             DispatchQueue.main.async {
                 self.loseHand()
@@ -690,6 +688,12 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func observe(_ raw: CGPoint, leftRatio: Double, rightRatio: Double, time: Double, videoSize: CGSize,
                  joints: [VNHumanHandPoseObservation.JointName: CGPoint]) {
         guard !closing, now() - time < 0.4 else { return }
+        // Do not synthesize click edges from missing landmarks. Brief gaps hold
+        // the current state; sustained loss resets the gesture before reacquisition.
+        if (leftPinch.active && !leftRatio.isFinite) || (rightPinch.pinched && !rightRatio.isFinite) ||
+            (scrollPinch.active && joints[.littleTip] == nil) {
+            trackingMiss(); return
+        }
         let regainedHand = !tracked
         tracked = true; lastHandTime = time
         if regainedHand && armed && !gestureBusy && now() >= audioCueDeadline { mic.setArmed(true) }
@@ -700,7 +704,6 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         var rightEdge = false
         if armed {
             guard AXIsProcessTrusted() else { setArmed(false); return }
-            let pose = classifyHandPose(joints: joints, videoSize: videoSize)
             let wasScrolling = scrollPinch.active
             let scrollRatio: Double
             if let pinky = joints[.littleTip], let thumb = joints[.thumbTip],
@@ -713,14 +716,13 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 pinchPoint = pointer ?? CGEvent(source: nil)?.location ?? target
             }
             let scrollDelta = scrollPinch.update(ratio: scrollRatio, y: Double(joints[.wrist]?.y ?? raw.y),
-                eligible: pose != .fist && pose != .closing && !fistOpen.isEngaged &&
-                    !missionControlTransition.blocksInput(time: now()) && !leftPinch.active && !rightPinch.pinched &&
-                    (scrollPinch.active || scrollRatio >= 0.58 || scrollRatio < min(leftRatio, rightRatio)),
+                eligible: !leftPinch.active && !rightPinch.pinched &&
+                    (scrollPinch.active || scrollRatio >= 0.58 || scrollRatio + 0.05 < min(leftRatio, rightRatio)),
                 time: time)
             if scrollPinch.active || wasScrolling {
                 if scrollPinch.active && !wasScrolling { tactile(.scroll) }
                 setGestureBusy(scrollPinch.active)
-                leftPinch.reset(); rightPinch.reset(); fistOpen.reset(); pinchPoint = nil
+                leftPinch.reset(); rightPinch.reset(); pinchPoint = nil
                 if pointer == nil { pointer = CGEvent(source: nil)?.location ?? target }
                 if let point = pointer {
                     publishPointer(point, time: time)
@@ -734,27 +736,15 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 lastActionTime = time
                 return
             }
-            let clickEngaged = leftPinch.active || rightPinch.pinched
-            let showWindows = fistOpen.update(pose: clickEngaged ? .other : pose, time: time)
-            if showWindows || fistOpen.isEngaged || (!clickEngaged && (pose == .fist || pose == .closing)) ||
-                missionControlTransition.blocksInput(time: now()) {
-                setGestureBusy(true)
-                scrollPinch.reset(); leftPinch.reset(); rightPinch.reset(); pinchApproach.reset(); pinchPoint = nil
-                // Folding the index finger must not drag the pointer across the desktop.
-                if pointer == nil { pointer = CGEvent(source: nil)?.location ?? target }
-                if let point = pointer { publishPointer(point, time: time) }
-                if showWindows { openWindowOverview() }
-                return
-            }
             pinchEvent = leftPinch.update(ratio: leftRatio,
                                          eligible: leftPinch.active || (!rightPinch.pinched &&
-                                             (leftRatio >= 0.58 || leftRatio <= rightRatio) && time - lastActionTime >= 0.5),
+                                             (leftRatio >= 0.58 || leftRatio + 0.05 < min(rightRatio, scrollRatio)) && time - lastActionTime >= 0.5),
                                          time: time)
             if pinchEvent == .began && pinchPoint == nil {
                 pinchPoint = pointer ?? CGEvent(source: nil)?.location ?? target
             }
             setGestureBusy(leftPinch.active || pinchApproach.active)
-            if leftPinch.active || (!rightPinch.pinched && rightRatio < 0.58 && leftRatio <= rightRatio) { rightPinch.reset() }
+            if leftPinch.active || (!rightPinch.pinched && rightRatio < 0.58 && rightRatio + 0.05 >= min(leftRatio, scrollRatio)) { rightPinch.reset() }
             else { rightEdge = rightPinch.update(ratio: rightRatio, time: time) }
         }
         // Preserve the captured point through release, including the frame that
@@ -776,13 +766,15 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         else if rightEdge { click(.right, at: point) }
         if !leftPinch.active && !pinchApproach.active { pinchPoint = nil }
     }
+    func trackingMiss() {
+        if now() - lastHandTime > 0.15 { loseHand() }
+    }
     func loseHand() {
         sensingOverlay.updateCursor(nil, time: now())
         preview.rawPoint = nil; preview.joints = [:]
         if tracked { mic.setArmed(false) }
         scrollPinch.reset(); leftPinch.reset(); rightPinch.reset()
-        fistOpen.reset(); pinchApproach.reset(); pinchPoint = nil; gestureBusy = false
-        missionControlTransition.cancel()
+        pinchApproach.reset(); pinchPoint = nil; gestureBusy = false
         lastRawPoint = nil
         pointer = nil
         if tracked {
@@ -803,22 +795,6 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         emit(["type": "action", "action": action.rawValue, "source": "gesture", "x": point.x, "y": point.y])
         targetLock.clear()
         targetOverlay.hide()
-    }
-    func openWindowOverview() {
-        guard armed, tracked, now() - lastHandTime <= 0.4, AXIsProcessTrusted(),
-              now() - lastActionTime >= 0.5 else { return }
-        let startedAt = now()
-        guard let request = missionControlTransition.begin(time: startedAt) else { return }
-        lastActionTime = startedAt
-        emit(["type": "action", "action": "mission_control", "source": "gesture", "phase": "requested"])
-        speechLabel.stringValue = "Opening window overview. Point and pinch after it opens."
-        // Launch completion is bookkeeping only. Pointer and pinch processing
-        // resume after the animation deadline, even while this callback waits.
-        showMissionControl { [weak self] error in
-            guard let self = self else { return }
-            guard !self.closing, self.missionControlTransition.complete(request: request) else { return }
-            if let error = error { self.report("Cannot show windows: \(error.localizedDescription)") }
-        }
     }
     func readInput() {
         DispatchQueue.global(qos: .utility).async {

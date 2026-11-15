@@ -4,6 +4,42 @@ import Foundation
 import CoreGraphics
 import Vision
 
+struct HandLandmarkSample {
+    let point: CGPoint
+    let confidence: Double
+}
+
+/// Frame-queue-only temporal filtering. Missing points are never invented.
+struct HandLandmarkFilter {
+    private struct Track { let point: CGPoint; let time: Double }
+    private var tracks: [VNHumanHandPoseObservation.JointName: Track] = [:]
+    mutating func update(_ samples: [VNHumanHandPoseObservation.JointName: HandLandmarkSample],
+                         time: Double) -> [VNHumanHandPoseObservation.JointName: CGPoint] {
+        guard time.isFinite else { tracks.removeAll(); return [:] }
+        tracks = tracks.filter { time >= $0.value.time && time - $0.value.time <= 0.15 }
+        var output: [VNHumanHandPoseObservation.JointName: CGPoint] = [:]
+        for (joint, sample) in samples {
+            let previous = tracks[joint]
+            guard sample.confidence.isFinite, sample.confidence >= (previous == nil ? 0.35 : 0.20),
+                  sample.point.x.isFinite, sample.point.y.isFinite,
+                  (0...1).contains(sample.point.x), (0...1).contains(sample.point.y) else { continue }
+            var point = sample.point
+            if let previous = previous {
+                let movement = hypot(point.x - previous.point.x, point.y - previous.point.y)
+                // Strong smoothing at rest, quicker response during intentional motion.
+                let response = min(0.8, 0.25 + movement * 12)
+                let dt = max(0.001, time - previous.time)
+                let alpha = 1 - pow(1 - response, dt * 30)
+                point = CGPoint(x: previous.point.x + alpha * (point.x - previous.point.x),
+                                y: previous.point.y + alpha * (point.y - previous.point.y))
+            }
+            tracks[joint] = Track(point: point, time: time)
+            output[joint] = point
+        }
+        return output
+    }
+}
+
 /// Use multiple palm axes so a foreshortened wrist-to-middle axis cannot
 /// inflate contact distance when the hand tilts. Coordinates remain pixel-correct.
 func pinchPalmScale(joints: [VNHumanHandPoseObservation.JointName: CGPoint], size: CGSize) -> Double {
@@ -311,6 +347,20 @@ func handGestureSelfTest() -> (tests: Int, failures: [String]) {
         tests += 1
         if !okay { failures.append(message) }
     }
+    var filter = HandLandmarkFilter()
+    func sample(_ x: Double, _ confidence: Double) -> [VNHumanHandPoseObservation.JointName: HandLandmarkSample] {
+        [.indexTip: HandLandmarkSample(point: CGPoint(x: x, y: 0.5), confidence: confidence)]
+    }
+    check(filter.update(sample(0.5, 0.25), time: 0).isEmpty, "Weak initial landmarks do not acquire tracking")
+    check(filter.update(sample(0.5, 0.9), time: 0.03)[.indexTip]?.x == 0.5, "Reliable landmarks acquire tracking")
+    let jitter = filter.update(sample(0.51, 0.25), time: 0.06)[.indexTip]!
+    check(jitter.x > 0.5 && jitter.x < 0.51, "Existing low-confidence points are smoothed without dropping the hand")
+    check(filter.update([:], time: 0.09).isEmpty, "Missing points never become synthetic observations")
+    check(filter.update(sample(0.7, 0.1), time: 0.12).isEmpty, "Unreliable points cannot drive gestures")
+    check(filter.update(sample(0.7, 0.25), time: 0.3).isEmpty, "Expired tracking must reacquire with strong confidence")
+    check(filter.update(sample(0.7, 0.9), time: 0.33)[.indexTip]?.x == 0.7, "Reacquisition does not interpolate across a long gap")
+    check(filter.update(sample(Double.nan, 0.9), time: 0.36).isEmpty, "Invalid geometry is rejected")
+    check(filter.update(sample(0.8, 0.25), time: 0.1).isEmpty, "Backward timestamps reset temporal state")
     let tilted: [VNHumanHandPoseObservation.JointName: CGPoint] = [
         .wrist: CGPoint(x: 0.5, y: 0.2), .middleMCP: CGPoint(x: 0.5, y: 0.21),
         .indexMCP: CGPoint(x: 0.4, y: 0.25), .littleMCP: CGPoint(x: 0.6, y: 0.25)]
