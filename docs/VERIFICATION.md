@@ -1,5 +1,12 @@
 # 离线验证记录与复现
 
+## Live Hand Skeleton in the Voice Pane
+
+The upper-right pane now receives the tracked Vision joints on each valid hand frame and draws a mirrored, aspect-correct, centered hand skeleton below the transcript. Missing joints do not get fabricated connections; tracking loss clears the skeleton. The index tip is highlighted in white. Existing text status remains secondary below the visualization.
+
+The native build and all 328 native checks passed. A synthetic-joint preview of the actual panel was rendered and visually inspected; click-through, nonactivation, and persistent speech checks passed. Artifacts are in ignored .build/verification/hand-skeleton/. This confirms layout and wiring, not a new physical gesture accuracy test.
+
+
 ## Hand Status in the Voice Pane
 
 A dedicated monospaced HAND footer now displays live tracking/gesture state independently of the voice transcript and matching status. It uses the existing gesture latches, reports successful clicks for 650 ms, and immediately clears active feedback on pause or tracking loss. The panel remains transparent, click-through, and nonactivating.

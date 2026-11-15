@@ -757,6 +757,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         tracked = true; lastHandTime = time
         if regainedHand && armed && !gestureBusy && now() >= audioCueDeadline { mic.setArmed(true) }
         preview.videoSize = videoSize; preview.rawPoint = raw; preview.joints = joints
+        sensingOverlay.updateHandSkeleton(joints, videoSize: videoSize, time: time)
         lastRawPoint = raw
         let target = screenPoint(raw, bounds: screen, gain: pointerGain)
         var pinchEvent = PinchHoldEvent.none
@@ -835,6 +836,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if now() - lastHandTime > 0.15 { loseHand() }
     }
     func loseHand() {
+        sensingOverlay.updateHandSkeleton([:], videoSize: preview?.videoSize ?? CGSize(width: 1280, height: 720), time: now())
         sensingOverlay.showHandStatus(armed ? "No hand detected" : "Paused · no hand", active: false, time: now())
         sensingOverlay.updateCursor(nil, time: now())
         preview.rawPoint = nil; preview.joints = [:]

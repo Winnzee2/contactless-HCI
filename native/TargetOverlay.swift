@@ -1,3 +1,4 @@
+import Vision
 // A transient, click-through indicator for an existing voice target lock.
 // All public methods are called on the main thread. This view never sends input.
 import AppKit
@@ -187,6 +188,8 @@ private final class VoiceCaptionView: NSView {
     var detail = ""
     var handStatus = "Paused"
     var handActive = false
+    var handJoints: [VNHumanHandPoseObservation.JointName: CGPoint] = [:]
+    var videoSize = CGSize(width: 1280, height: 720)
     override var isOpaque: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func draw(_ dirtyRect: NSRect) {
@@ -210,15 +213,15 @@ private final class VoiceCaptionView: NSView {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
         paragraph.lineSpacing = 3
-        (text as NSString).draw(in: CGRect(x: 16, y: 72, width: bounds.width - 32, height: 44),
+        (text as NSString).draw(in: CGRect(x: 16, y: 202, width: bounds.width - 32, height: 44),
             withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 14, weight: .medium),
                              .foregroundColor: recognized ? red : NSColor.white.withAlphaComponent(0.85),
                              .paragraphStyle: paragraph])
-        (detail as NSString).draw(in: CGRect(x: 16, y: 43, width: bounds.width - 32, height: 25),
+        (detail as NSString).draw(in: CGRect(x: 16, y: 173, width: bounds.width - 32, height: 25),
             withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 9, weight: .regular),
                              .foregroundColor: muted, .paragraphStyle: paragraph])
         let footer = NSBezierPath()
-        footer.move(to: CGPoint(x: 16, y: 35)); footer.line(to: CGPoint(x: bounds.width - 16, y: 35))
+        footer.move(to: CGPoint(x: 16, y: 165)); footer.line(to: CGPoint(x: bounds.width - 16, y: 165))
         NSColor.white.withAlphaComponent(0.1).setStroke(); footer.lineWidth = 0.5; footer.stroke()
         let handColor = handActive ? NSColor(srgbRed: 0.15, green: 0.9, blue: 1, alpha: 0.95) : muted
         handColor.setFill()
@@ -226,6 +229,44 @@ private final class VoiceCaptionView: NSView {
         ("HAND" as NSString).draw(at: CGPoint(x: 29, y: 12),
             withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 9, weight: .medium),
                              .foregroundColor: muted, .kern: 1])
+        let area = CGRect(x: 30, y: 40, width: bounds.width - 60, height: 112)
+        let points = handJoints.mapValues { CGPoint(x: (1 - $0.x) * videoSize.width, y: $0.y * videoSize.height) }
+        if let minX = points.values.map({ $0.x }).min(), let maxX = points.values.map({ $0.x }).max(),
+           let minY = points.values.map({ $0.y }).min(), let maxY = points.values.map({ $0.y }).max() {
+            let scale = min(area.width / max(40, maxX - minX), area.height / max(40, maxY - minY))
+            func location(_ point: CGPoint) -> CGPoint {
+                CGPoint(x: area.midX + (point.x - (minX + maxX) / 2) * scale,
+                        y: area.midY + (point.y - (minY + maxY) / 2) * scale)
+            }
+            let fingers: [[VNHumanHandPoseObservation.JointName]] = [
+                [.wrist, .thumbCMC, .thumbMP, .thumbIP, .thumbTip],
+                [.wrist, .indexMCP, .indexPIP, .indexDIP, .indexTip],
+                [.wrist, .middleMCP, .middlePIP, .middleDIP, .middleTip],
+                [.wrist, .ringMCP, .ringPIP, .ringDIP, .ringTip],
+                [.wrist, .littleMCP, .littlePIP, .littleDIP, .littleTip]
+            ]
+            let skeleton = NSBezierPath()
+            skeleton.lineWidth = 1.5; skeleton.lineCapStyle = .round; skeleton.lineJoinStyle = .round
+            for finger in fingers {
+                for i in 1..<finger.count {
+                    if let a = points[finger[i - 1]], let b = points[finger[i]] {
+                        skeleton.move(to: location(a)); skeleton.line(to: location(b))
+                    }
+                }
+            }
+            handColor.withAlphaComponent(0.7).setStroke(); skeleton.stroke()
+            for (joint, point) in points {
+                let center = location(point)
+                let radius: CGFloat = joint == .indexTip ? 3.5 : 2
+                (joint == .indexTip ? NSColor.white : handColor).setFill()
+                NSBezierPath(ovalIn: CGRect(x: center.x - radius, y: center.y - radius,
+                                            width: radius * 2, height: radius * 2)).fill()
+            }
+        } else {
+            ("Show your hand" as NSString).draw(at: CGPoint(x: area.midX - 48, y: area.midY),
+                withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+                                 .foregroundColor: muted])
+        }
         (handStatus as NSString).draw(in: CGRect(x: 81, y: 10, width: bounds.width - 97, height: 16),
             withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
                              .foregroundColor: handColor, .paragraphStyle: paragraph])
@@ -244,6 +285,8 @@ final class SensingOverlay {
     private var handStatus = "Paused"
     private var handActive = false
     private var handFeedbackUntil = -Double.infinity
+    private var handJoints: [VNHumanHandPoseObservation.JointName: CGPoint] = [:]
+    private var handVideoSize = CGSize(width: 1280, height: 720)
     private var suspensions = 0
 
     private func panel(view: NSView) -> TargetOverlayPanel {
@@ -258,6 +301,14 @@ final class SensingOverlay {
         return panel
     }
 
+    func updateHandSkeleton(_ joints: [VNHumanHandPoseObservation.JointName: CGPoint],
+                            videoSize: CGSize, time: TimeInterval) {
+        precondition(Thread.isMainThread)
+        guard videoSize.width > 0, videoSize.height > 0 else { return }
+        handJoints = joints.filter { $0.value.x.isFinite && $0.value.y.isFinite }
+        handVideoSize = videoSize
+        refresh(time: time)
+    }
     func showHandStatus(_ status: String, active: Bool, time: TimeInterval, feedback: Bool = false) {
         precondition(Thread.isMainThread)
         if active && !feedback && time < handFeedbackUntil { return }
@@ -326,12 +377,12 @@ final class SensingOverlay {
         } else { ringPanel?.orderOut(nil) }
         if !transcript.isEmpty {
             let usable = screen.visibleFrame.insetBy(dx: 18, dy: 18)
-            let width = min(320, usable.width), height = min(158, usable.height)
+            let width = min(320, usable.width), height = min(288, usable.height)
             let frame = CGRect(x: usable.maxX - width, y: usable.maxY - height, width: width, height: height)
             if captionPanel == nil { captionPanel = panel(view: VoiceCaptionView()) }
             captionPanel?.setFrame(frame, display: false)
             if let view = captionPanel?.contentView as? VoiceCaptionView {
-                view.frame = CGRect(origin: .zero, size: frame.size); view.text = transcript; view.heading = heading; view.detail = detail; view.handStatus = handStatus; view.handActive = handActive; view.needsDisplay = true
+                view.frame = CGRect(origin: .zero, size: frame.size); view.text = transcript; view.heading = heading; view.detail = detail; view.handStatus = handStatus; view.handActive = handActive; view.handJoints = handJoints; view.videoSize = handVideoSize; view.needsDisplay = true
             }
             if captionPanel?.isVisible == false { captionPanel?.orderFrontRegardless() }
         } else { captionPanel?.orderOut(nil) }
