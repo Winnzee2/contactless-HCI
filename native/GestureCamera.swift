@@ -653,6 +653,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             }
         }
         armed = value
+        sensingOverlay.showHandStatus(value ? (tracked ? "Pointing" : "No hand detected") : "Paused", active: value && tracked, time: now())
         if !value { sensingOverlay.clear() }
         rapidClicks.reset(); scrollPinch.reset(); leftPinch.reset(); rightPinch.reset()
         pinchApproach.reset(); pinchPoint = nil; gestureBusy = false
@@ -779,6 +780,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 time: time)
             if scrollPinch.active || wasScrolling {
                 if scrollPinch.active && !wasScrolling { rapidClicks.reset(); tactile(.scroll) }
+                sensingOverlay.showHandStatus(scrollPinch.active ? "Scrolling" : "Pointing", active: true, time: time)
                 setGestureBusy(scrollPinch.active)
                 leftPinch.reset(); rightPinch.reset(); pinchPoint = nil
                 if pointer == nil { pointer = CGEvent(source: nil)?.location ?? target }
@@ -805,6 +807,12 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             if leftPinch.active || (!rightPinch.pinched && rightRatio < 0.58 && rightRatio + 0.05 >= min(leftRatio, scrollRatio)) { rightPinch.reset() }
             else { rightEdge = rightPinch.update(ratio: rightRatio, time: time) }
         }
+        let handStatus = !armed ? "Paused · hand detected" :
+            leftPinch.active ? "Left pinch · release to click" :
+            rightPinch.pinched ? "Right pinch" :
+            pinchApproach.active ? "Pinch ready · cursor held" :
+            targetLock.resolve(hand: raw, time: time) != nil ? "Target locked" : "Pointing"
+        sensingOverlay.showHandStatus(handStatus, active: armed, time: time)
         // Preserve the captured point through release, including the frame that
         // emits a quick single click. A held pinch never emits a preliminary click.
         if let held = pinchPoint, pinchApproach.active || leftPinch.active || rightEdge || pinchEvent == .singleClick || pinchEvent == .doubleClick { pointer = held }
@@ -827,6 +835,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if now() - lastHandTime > 0.15 { loseHand() }
     }
     func loseHand() {
+        sensingOverlay.showHandStatus(armed ? "No hand detected" : "Paused · no hand", active: false, time: now())
         sensingOverlay.updateCursor(nil, time: now())
         preview.rawPoint = nil; preview.joints = [:]
         rapidClicks.reset(); scrollPinch.reset(); leftPinch.reset(); rightPinch.reset()
@@ -848,6 +857,8 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let button: CGMouseButton = action == .right ? .right : .left
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: button)?.post(tap: .cghidEventTap)
         for event in events { event.post(tap: .cghidEventTap) }
+        sensingOverlay.showHandStatus(action == .right ? "Right click" : count == 2 ? "Double click" : "Left click",
+                                      active: true, time: now(), feedback: true)
         tactile(count == 2 ? .doubleClick : .click)
         lastActionTime = now()
         emit(["type": "action", "action": action.rawValue, "source": "gesture", "x": point.x, "y": point.y])

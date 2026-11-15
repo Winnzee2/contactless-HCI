@@ -1,5 +1,12 @@
 # 离线验证记录与复现
 
+## Hand Status in the Voice Pane
+
+A dedicated monospaced HAND footer now displays live tracking/gesture state independently of the voice transcript and matching status. It uses the existing gesture latches, reports successful clicks for 650 ms, and immediately clears active feedback on pause or tracking loss. The panel remains transparent, click-through, and nonactivating.
+
+All 328 native checks passed. The actual overlay was rendered and visually inspected with transcript, target status, and left-pinch feedback shown together. The preview verified unchanged focus, click-through behavior, and persistence through capture, tracking loss, and pause. Evidence is in ignored .build/verification/hand-status/. No physical gesture trial is claimed for this presentation change.
+
+
 ## Switch Windows / Cmd+Tab
 
 “Switch windows,” “switch apps,” and “switch applications” route to a fixed global Cmd+Tab sequence. Command and Tab are both released in the same action, so the application never holds a modifier while awaiting speech. “Change window” remains the same-app window action; Jarvis records the new phrase as text. This implements normal Cmd+Tab behavior (typically alternating the two most recent apps), not a cycle of all individual windows.

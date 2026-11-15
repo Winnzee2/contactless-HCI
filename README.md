@@ -216,3 +216,5 @@ Each session saves a separate UTF-8 text file with a unique identifier; existing
 Say **“all windows”** to toggle Mission Control from any app. Say it again while the overview is open to return to the desktop. Pointer movement and pinch clicks remain available to select a window. The fist gesture remains disabled; in Jarvis dictation mode, “all windows” is recorded as note text.
 
 Say **“switch windows”** (or **“switch apps”**) to send a complete **Cmd+Tab** shortcut to macOS. This switches applications, following macOS recent-app ordering; repeated single presses normally alternate between the two most recent apps. **“Change window”** still switches windows within the current app. During Jarvis dictation these phrases remain note text.
+
+The upper-right speech pane includes a live **HAND** footer: pointing, pinch preparation, left/right pinch, scrolling, target lock, tracking loss, and paused state. Successful clicks briefly show Left click, Right click, or Double click. Cyan indicates active hand control; muted text indicates paused or missing tracking. Hand feedback does not replace the recognized speech.

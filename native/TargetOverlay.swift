@@ -185,6 +185,8 @@ private final class VoiceCaptionView: NSView {
     var text = ""
     var heading = "SPEECH DETECTION"
     var detail = ""
+    var handStatus = "Paused"
+    var handActive = false
     override var isOpaque: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func draw(_ dirtyRect: NSRect) {
@@ -208,13 +210,25 @@ private final class VoiceCaptionView: NSView {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
         paragraph.lineSpacing = 3
-        (text as NSString).draw(in: CGRect(x: 16, y: 38, width: bounds.width - 32, height: 44),
+        (text as NSString).draw(in: CGRect(x: 16, y: 72, width: bounds.width - 32, height: 44),
             withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 14, weight: .medium),
                              .foregroundColor: recognized ? red : NSColor.white.withAlphaComponent(0.85),
                              .paragraphStyle: paragraph])
-        (detail as NSString).draw(in: CGRect(x: 16, y: 9, width: bounds.width - 32, height: 25),
+        (detail as NSString).draw(in: CGRect(x: 16, y: 43, width: bounds.width - 32, height: 25),
             withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 9, weight: .regular),
                              .foregroundColor: muted, .paragraphStyle: paragraph])
+        let footer = NSBezierPath()
+        footer.move(to: CGPoint(x: 16, y: 35)); footer.line(to: CGPoint(x: bounds.width - 16, y: 35))
+        NSColor.white.withAlphaComponent(0.1).setStroke(); footer.lineWidth = 0.5; footer.stroke()
+        let handColor = handActive ? NSColor(srgbRed: 0.15, green: 0.9, blue: 1, alpha: 0.95) : muted
+        handColor.setFill()
+        NSBezierPath(ovalIn: CGRect(x: 16, y: 16, width: 5, height: 5)).fill()
+        ("HAND" as NSString).draw(at: CGPoint(x: 29, y: 12),
+            withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 9, weight: .medium),
+                             .foregroundColor: muted, .kern: 1])
+        (handStatus as NSString).draw(in: CGRect(x: 81, y: 10, width: bounds.width - 97, height: 16),
+            withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
+                             .foregroundColor: handColor, .paragraphStyle: paragraph])
     }
 }
 
@@ -227,6 +241,9 @@ final class SensingOverlay {
     private var transcript = "Voice paused"
     private var heading = "SPEECH DETECTION"
     private var detail = ""
+    private var handStatus = "Paused"
+    private var handActive = false
+    private var handFeedbackUntil = -Double.infinity
     private var suspensions = 0
 
     private func panel(view: NSView) -> TargetOverlayPanel {
@@ -241,6 +258,15 @@ final class SensingOverlay {
         return panel
     }
 
+    func showHandStatus(_ status: String, active: Bool, time: TimeInterval, feedback: Bool = false) {
+        precondition(Thread.isMainThread)
+        if active && !feedback && time < handFeedbackUntil { return }
+        if feedback { handFeedbackUntil = time + 0.65 }
+        if !active { handFeedbackUntil = -Double.infinity }
+        guard handStatus != status || handActive != active else { return }
+        handStatus = status; handActive = active
+        refresh(time: time)
+    }
     func updateCursor(_ point: CGPoint?, time: TimeInterval) {
         precondition(Thread.isMainThread)
         self.point = point
@@ -300,12 +326,12 @@ final class SensingOverlay {
         } else { ringPanel?.orderOut(nil) }
         if !transcript.isEmpty {
             let usable = screen.visibleFrame.insetBy(dx: 18, dy: 18)
-            let width = min(320, usable.width), height = min(124, usable.height)
+            let width = min(320, usable.width), height = min(158, usable.height)
             let frame = CGRect(x: usable.maxX - width, y: usable.maxY - height, width: width, height: height)
             if captionPanel == nil { captionPanel = panel(view: VoiceCaptionView()) }
             captionPanel?.setFrame(frame, display: false)
             if let view = captionPanel?.contentView as? VoiceCaptionView {
-                view.frame = CGRect(origin: .zero, size: frame.size); view.text = transcript; view.heading = heading; view.detail = detail; view.needsDisplay = true
+                view.frame = CGRect(origin: .zero, size: frame.size); view.text = transcript; view.heading = heading; view.detail = detail; view.handStatus = handStatus; view.handActive = handActive; view.needsDisplay = true
             }
             if captionPanel?.isVisible == false { captionPanel?.orderFrontRegardless() }
         } else { captionPanel?.orderOut(nil) }
