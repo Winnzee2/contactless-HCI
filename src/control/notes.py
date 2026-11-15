@@ -37,7 +37,7 @@ class Notes:
     def update(self, final=False):
         self.native({"type": "note_update", "session_id": self.session,
                      "text": "\n".join(self.parts), "recording": self.accepting,
-                     "final": final, "message": self.reason or "Listening · say Bye Jarvis to finish"})
+                     "final": final, "close_after_save": self.reason == "Stopped by Bye Jarvis", "message": self.reason or "Listening · say Bye Jarvis to finish"})
 
     def begin(self, request_id, text):
         self.session = uuid.uuid4().hex

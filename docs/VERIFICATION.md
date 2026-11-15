@@ -1,5 +1,9 @@
 # 离线验证记录与复现
 
+## Bye Jarvis Saves and Closes Notes
+
+The note protocol now explicitly requests closure for the spoken stop phrase. The native window hides only after finalization and successful saving; failed saves remain visible and a successful retry closes the window. Silence and button-stop notes remain visible. Native UI probes verified saved file content before closure, failed-save recovery, silence behavior, and empty notes. Python tests: 189 discovered, 187 passed, two optional skips. The native build passed. Evidence is in ignored `.build/verification/bye/`.
+
 ## Spoken Cheatsheet Toggle
 
 “How Jarvis” is an explicit local command that toggles and remembers cheatsheet visibility. Native validation accepts no coordinates for it; it does not send mouse or keyboard input. Dictation retains the phrase as note text. The pane starts collapsed and changes height without moving its top-right anchor. All 335 native checks and 186 Python tests passed (two optional skips). A focused native preview passed expand/collapse, click-through, focus, and caption persistence checks; the collapsed layout was visually inspected. A live-pointer hover probe was inconclusive while the app was running, so the focused rerun avoided moving the user’s cursor; the previously verified hover implementation is unchanged.

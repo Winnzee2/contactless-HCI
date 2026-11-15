@@ -17,6 +17,7 @@ final class NotesPanel: NSObject, NSWindowDelegate {
     private var finished = false
     private var completionReason = ""
     private var saved = false
+    private var closeAfterSave = false
     private var unsaved: [String: String] = [:]
     var onStop: (() -> Void)?
     private var folder: URL {
@@ -128,6 +129,7 @@ final class NotesPanel: NSObject, NSWindowDelegate {
             panel?.orderFrontRegardless()
         }
         content = text; finished = final
+        closeAfterSave = json["close_after_save"] as? Bool ?? false
         completionReason = json["message"] as? String ?? ""
         textView.string = text
         textView.scrollToEndOfDocument(nil)
@@ -164,6 +166,8 @@ final class NotesPanel: NSObject, NSWindowDelegate {
             status.stringValue = "Could not save \(unsaved.count) note(s): \(error)\nChoose another folder or Retry save. Text is kept until the app exits."
             panel?.title = "Jarvis · Save failed"
             panel?.orderFrontRegardless()
+        } else if finished && closeAfterSave && saved && unsaved.isEmpty {
+            panel?.orderOut(nil)
         }
     }
 }

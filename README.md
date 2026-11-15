@@ -230,3 +230,5 @@ The upper-right pane includes a foldable **Use cheatsheet** for gestures, voice 
 The product is named **Jarvis**. Existing macOS bundle identifiers and preference keys are retained for upgrade compatibility. Existing note-folder selections are preserved; an existing legacy notes folder is reused, while new installations default to Documents/Jarvis Notes.
 
 Product website: https://jarvis.kuzeze.chatgpt.site · Source: https://github.com/Winnzee2/Jarvis
+
+Say **“Bye Jarvis”** to finish dictation, save the text, and close the notes window. If saving fails, the window stays open so you can retry or choose another folder.

@@ -43,6 +43,19 @@ class TestNotes(unittest.TestCase):
         self.assertEqual(self.native[-1]["text"], "Buy milk.")
         self.assertTrue(self.native[-1]["final"])
         self.assertEqual(self.worker, [])
+        self.assertTrue(self.native[-1]["close_after_save"])
+
+    def test_bye_requests_close_but_silence_does_not(self):
+        self.begin()
+        self.audio("content")
+        self.result("content", "Remember this. Bye Jarvis.")
+        self.assertTrue(self.native[-1]["final"])
+        self.assertTrue(self.native[-1]["close_after_save"])
+        self.begin("Hey Jarvis, another note")
+        self.now += 6
+        self.notes.tick()
+        self.assertTrue(self.native[-1]["final"])
+        self.assertFalse(self.native[-1]["close_after_save"])
 
     def test_audio_while_wake_is_transcribing_is_not_lost(self):
         self.audio("wake")

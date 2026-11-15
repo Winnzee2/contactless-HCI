@@ -63,7 +63,7 @@ Commands use explicit application rules rather than arbitrary model-generated ke
 - The default folder is Documents/Jarvis Notes.
 - Each note is saved as a separate UTF-8 text file with a unique name.
 - Existing files are not overwritten. Save failures retain recognized text in memory for folder changes and retry.
-- The notepad remains visible after saving, and ordinary voice targeting resumes.
+- “Bye Jarvis” saves and closes the notepad. Silence or the Stop recording button leaves the saved note visible. Save failures keep the window open for retry; ordinary voice targeting resumes.
 - Pausing ends note recording. Quitting can save already recognized text, but cannot recover audio still being transcribed.
 
 ## Visual and audio feedback
