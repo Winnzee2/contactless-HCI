@@ -1,5 +1,12 @@
 # 离线验证记录与复现
 
+## All Windows Toggle
+
+The native Mission Control action now explicitly requests a fresh application instance on each invocation. macOS owns the overview state, so a second “all windows” request toggles it closed without sending Escape or maintaining a stale local flag. The action still leaves gesture handling enabled.
+
+Validation: 186 Python tests passed (188 discovered, two optional tests skipped), and all 316 native checks passed. A production-helper AppKit probe captured the overview after its first invocation and the normal desktop after its second; both launch callbacks completed successfully. Early visual attempts were inconclusive during user interaction and with a nonactivating launch configuration; the final configuration uses normal activation. The isolated probe verifies native toggling, not a fresh spoken end-to-end acceptance test. Evidence is in ignored .build/verification/overview-toggle/.
+
+
 ## All Windows Voice Command
 
 “All windows” and “show all windows” now route through the explicit navigation allowlist to the existing native Mission Control launcher. The action works independently of browser type and readable screen targets. It clears stale target locks without setting a gesture-busy latch, allowing normal pointer and pinch handling in the overview. Jarvis dictation records the phrase as text.

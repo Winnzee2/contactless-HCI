@@ -29,6 +29,17 @@ class TestCoordinator(unittest.TestCase):
         self.coordinator.handle({"type": "targets", "request_id": "a", "targets": [self.target]})
         self.coordinator.handle({"type": "speech_audio", "request_id": "a", "pcm_base64": "AAA=", "sample_rate": 16000})
 
+    def test_all_windows_can_toggle_twice_with_distinct_requests(self):
+        for key in ("a", "b"):
+            self.coordinator.handle({"type": "speech_start", "request_id": key}, source="native")
+            self.coordinator.handle({"type": "targets", "request_id": key, "targets": []}, source="native")
+            self.coordinator.handle({"type": "speech_audio", "request_id": key, "pcm_base64": "AAA=", "sample_rate": 16000}, source="native")
+            self.coordinator.handle({"type": "navigation", "request_id": key, "action": "all_windows"}, source="worker")
+            self.assertEqual(self.native[-1], {"type": "voice_action", "request_id": key, "action": "all_windows"})
+            self.coordinator.handle({"type": "action", "source": "voice", "request_id": key, "action": "all_windows"}, source="native")
+            self.assertIsNone(self.coordinator.pending_navigation)
+        self.assertEqual(sum(x["type"] == "voice_action" for x in self.native), 2)
+
     def test_close_tab_requires_matching_native_acknowledgment(self):
         self.submit()
         self.coordinator.handle({"type": "navigation", "request_id": "a", "action": "close_tab"}, source="worker")

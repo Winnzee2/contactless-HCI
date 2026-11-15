@@ -67,7 +67,7 @@ class PendingNavigation:
 
 
 NAVIGATION_MESSAGES = {
-    "all_windows": {"start": "Showing all desktop windows…", "sent": "Mission Control requested.",
+    "all_windows": {"start": "Toggling desktop window overview…", "sent": "Window overview toggle requested.",
                     "retry": "Window overview was not confirmed. Say “all windows” again.", "phrase": "all windows"},
     "close_window": {"start": "Closing the active window…", "sent": "Window close requested.",
                      "retry": "Window close was not confirmed. Try again.", "phrase": "close window"},

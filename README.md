@@ -61,7 +61,7 @@ You may need to quit and restart after changing permissions. The app starts **PA
 | Say **“last page”** | Go back to the previous page in the active browser or the previously visited folder in Finder, without moving or clicking the pointer |
 | Say **“tab left”** or **“tab right”** | Switch to the adjacent tab on that side in the active browser window, even when tab names are truncated |
 | Say “two,” “number two,” or “第二个” while numbered circles are visible | Select position 2 and move the pointer there; no click |
-| Say “all windows” or “show all windows” | Open macOS Mission Control to view windows on the current desktop |
+| Say “all windows” or “show all windows” | Toggle Mission Control: show desktop windows, or exit the overview if already open |
 | Say “cancel” while numbered circles are visible | Dismiss the choices |
 | Move your finger during the 15 seconds after targeting | Keep the pointer on the target while you prepare a pinch |
 | Wait 15 seconds after targeting | Release the pointer lock |
@@ -213,4 +213,4 @@ Say **“Bye Jarvis”**, press **Stop recording**, or leave **five seconds of s
 
 Each session saves a separate UTF-8 text file with a unique identifier; existing notes are not overwritten. The window shows the saved path. If saving fails, text remains in memory: choose another folder or use **Retry save** before quitting. Quitting saves text already recognized, but cannot recover audio still being transcribed. A bounded transcription backlog stops with an explicit partial-note message if inference cannot keep up. The notepad remains visible after saving, while ordinary voice targeting resumes. No cloud service is used.
 
-Say **“all windows”** to open Mission Control from any app. Pointer movement and pinch clicks remain available to select a window. The fist gesture remains disabled; in Jarvis dictation mode, “all windows” is recorded as note text.
+Say **“all windows”** to toggle Mission Control from any app. Say it again while the overview is open to return to the desktop. Pointer movement and pinch clicks remain available to select a window. The fist gesture remains disabled; in Jarvis dictation mode, “all windows” is recorded as note text.

@@ -111,7 +111,7 @@ func supportsHistoryBack(bundleIdentifier: String?) -> Bool {
     return historyBackMatches(identifier, browserHandlers: handlers)
 }
 
-func showMissionControl(completion: @escaping (Error?) -> Void) {
+func toggleMissionControl(completion: @escaping (Error?) -> Void) {
     let application = URL(fileURLWithPath: "/System/Applications/Mission Control.app", isDirectory: true)
     guard FileManager.default.fileExists(atPath: application.path) else {
         DispatchQueue.main.async {
@@ -122,11 +122,14 @@ func showMissionControl(completion: @escaping (Error?) -> Void) {
     }
     let configuration = NSWorkspace.OpenConfiguration()
     configuration.activates = true
+    configuration.createsNewApplicationInstance = true
     configuration.addsToRecentItems = false
     // Launch the bundled local app through the public API. This works even if
     // the user has changed or disabled the default Control-Up keyboard shortcut.
-    // Opening Mission Control follows macOS behavior, including its existing
-    // desktop/Spaces settings; no window is minimized, moved or closed here.
+    // A fresh invocation asks Dock to toggle its actual overview state, even
+    // when the launcher is already running. Do not
+    // keep a local open/closed flag: mouse/keyboard exits can change that state.
+    // No Escape event is posted, so closing the overview cannot pause control.
     NSWorkspace.shared.openApplication(at: application, configuration: configuration) { _, error in
         DispatchQueue.main.async { completion(error) }
     }

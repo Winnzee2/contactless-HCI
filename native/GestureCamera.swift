@@ -997,8 +997,8 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             lastActionTime = now()
             // Launch asynchronously without latching gestureBusy: pointer and
             // pinch control must remain available inside the window overview.
-            showMissionControl { [weak self] error in
-                if let error { fail("Could not show all windows: \(error.localizedDescription)"); return }
+            toggleMissionControl { [weak self] error in
+                if let error { fail("Could not toggle window overview: \(error.localizedDescription)"); return }
                 self?.tactile(.navigation)
                 emit(["type": "action", "source": "voice", "action": instruction.action, "request_id": instruction.requestID])
             }
