@@ -1,5 +1,9 @@
 # 离线验证记录与复现
 
+## The Meridian Offline News Demo
+
+The self-contained newspaper was loaded directly from disk in WKWebView. Automated checks passed for desktop and mobile horizontal fit, full article rendering and scroll length, section filtering, search and its empty state, bookmark add/remove, text-size changes, and browser-history back navigation. Desktop home/article and mobile layouts were visually inspected. The site bundles all text, styles, scripts, and vector artwork; its content security policy blocks network connections. Preview artifacts are in ignored `.build/verification/news/`. This verifies the website, not a new live voice-and-gesture trial.
+
 ## Cohesive Visual Refresh and Feature Guide
 
 The native main window now uses a graphite palette, cyan monospaced labels, a rounded camera viewport, four equal-height gesture cards, and grouped controls. The speech/hand pane includes a subtle plotting background; target labels use monospaced type. Jarvis uses matching typography, inset writing space, and a clearer heading. Both offline practice pages use the same dark palette with visible focus states and readable helper text. docs/FEATURES.md inventories implemented features and limitations and is linked from the README.

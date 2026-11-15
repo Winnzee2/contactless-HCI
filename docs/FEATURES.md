@@ -88,6 +88,7 @@ Commands use explicit application rules rather than arbitrary model-generated ke
 - Startup checks for installed models and permissions; the launcher can start the installed Bonsai service.
 - Gesture-only mode and standalone file/microphone speech-to-text interfaces.
 - Offline target board and duplicate-target practice page.
+- The Meridian offline newspaper: six fictional stories, section navigation, search, reading-list bookmarks, text-size controls, and browser-history navigation.
 - Python regression tests and native self-tests for recognition rules, routing, geometry, and input events.
 
 ## Requirements and limits

@@ -86,6 +86,8 @@ Numbered choices keep their original numbers and search area while you move your
 
 For local practice, open the [offline target board](assets/demo/target-board.html) or the [duplicate-target practice page](assets/demo/duplicate-targets.html). On the duplicate page, point near the middle button, say “Reports,” wait for the circles, then say a number and pinch to click. Both pages work without a network connection; the same discovery and selection code is used in other applications.
 
+For a realistic browsing demo, open [The Meridian offline newspaper](assets/demo/news/index.html): six fictional feature stories, five sections, search, bookmarks, and adjustable article text. See the [news demo guide](assets/demo/news/README.md) for a hands-free walkthrough. No server or Wi-Fi is needed.
+
 Additional launch options:
 
 ```bash
