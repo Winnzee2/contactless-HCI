@@ -369,6 +369,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     var lastPointerEvent = -Double.infinity
     var lastActionTime = -Double.infinity
     var tracked = false
+    var scrollPinch = ScrollPinchLatch()
     var leftPinch = HoldPinchLatch()
     var rightPinch = PinchLatch()
     var fistOpen = FistOpenLatch()
@@ -427,7 +428,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         stateLabel.font = .systemFont(ofSize: 18, weight: .semibold)
         speechLabel = NSTextField(wrappingLabelWithString: useVoice ? "Voice is preparing locally." : "Camera-only mode. Voice capture is off.")
         speechLabel.maximumNumberOfLines = 3
-        let hint = NSTextField(wrappingLabelWithString: "Index: move · Thumb + middle: release to click, hold 0.7s to double-click · Thumb + ring: right click\nFist, then open hand: show windows · Space: enable/pause · Escape: pause · Q: quit")
+        let hint = NSTextField(wrappingLabelWithString: "Index: move · Thumb + middle: release to click, hold 0.7s to double-click · Thumb + ring: right click\nThumb + pinky: hold and move up/down to scroll\nFist, then open hand: show windows · Space: enable/pause · Escape: pause · Q: quit")
         hint.textColor = .secondaryLabelColor
         toggleButton = NSButton(title: "Enable pointer", target: self, action: #selector(toggle))
         toggleButton.bezelStyle = .rounded
@@ -578,7 +579,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             }
         }
         armed = value
-        leftPinch.reset(); rightPinch.reset()
+        scrollPinch.reset(); leftPinch.reset(); rightPinch.reset()
         fistOpen.reset(); pinchPoint = nil; gestureBusy = false
         missionControlTransition.cancel()
         targetLock.clear()
@@ -664,11 +665,39 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if armed {
             guard AXIsProcessTrusted() else { setArmed(false); return }
             let pose = classifyHandPose(joints: joints, videoSize: videoSize)
+            let wasScrolling = scrollPinch.active
+            let scrollRatio: Double
+            if let pinky = joints[.littleTip], let thumb = joints[.thumbTip],
+               let wrist = joints[.wrist], let middle = joints[.middleMCP] {
+                let palm = imageDistance(wrist, middle, size: videoSize)
+                scrollRatio = palm > 0 ? imageDistance(pinky, thumb, size: videoSize) / palm : .infinity
+            } else { scrollRatio = .infinity }
+            let scrollDelta = scrollPinch.update(ratio: scrollRatio, y: Double(joints[.wrist]?.y ?? raw.y),
+                eligible: pose != .fist && pose != .closing && !fistOpen.isEngaged &&
+                    !missionControlTransition.blocksInput(time: now()) && leftRatio > 0.45 && rightRatio > 0.45,
+                time: time)
+            if scrollPinch.active || wasScrolling {
+                setGestureBusy(scrollPinch.active)
+                leftPinch.reset(); rightPinch.reset(); fistOpen.reset(); pinchPoint = nil
+                targetLock.clear(); targetOverlay.hide()
+                if pointer == nil { pointer = CGEvent(source: nil)?.location ?? target }
+                if let point = pointer {
+                    publishPointer(point, time: time)
+                    if scrollDelta != 0 {
+                        let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
+                                            wheel1: scrollDelta, wheel2: 0, wheel3: 0)
+                        event?.location = point
+                        event?.post(tap: .cghidEventTap)
+                    }
+                }
+                lastActionTime = time
+                return
+            }
             let showWindows = fistOpen.update(pose: pose, time: time)
             if showWindows || fistOpen.isEngaged || pose == .fist || pose == .closing ||
                 missionControlTransition.blocksInput(time: now()) {
                 setGestureBusy(true)
-                leftPinch.reset(); rightPinch.reset(); pinchPoint = nil
+                scrollPinch.reset(); leftPinch.reset(); rightPinch.reset(); pinchPoint = nil
                 targetLock.clear(); targetOverlay.hide()
                 // Folding the index finger must not drag the pointer across the desktop.
                 if pointer == nil { pointer = CGEvent(source: nil)?.location ?? target }
@@ -708,7 +737,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func loseHand() {
         preview.rawPoint = nil; preview.joints = [:]
         if tracked { mic.setArmed(false) }
-        leftPinch.reset(); rightPinch.reset()
+        scrollPinch.reset(); leftPinch.reset(); rightPinch.reset()
         fistOpen.reset(); pinchPoint = nil; gestureBusy = false
         missionControlTransition.cancel()
         targetLock.clear(); lastRawPoint = nil

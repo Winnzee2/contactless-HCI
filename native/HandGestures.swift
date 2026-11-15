@@ -68,6 +68,31 @@ struct HoldPinchLatch {
     }
 }
 
+/// Relative wrist motion scrolls only while a deliberately closed pinky pinch is held.
+struct ScrollPinchLatch {
+    private(set) var active = false
+    private var ready = false
+    private var anchor: Double?
+    private var lastTime: Double?
+    mutating func reset() { active = false; ready = false; anchor = nil; lastTime = nil }
+    mutating func update(ratio: Double, y: Double, eligible: Bool, time: Double) -> Int32 {
+        guard eligible, ratio.isFinite, ratio >= 0, y.isFinite, time.isFinite else { reset(); return 0 }
+        if let previous = lastTime, time < previous || time - previous > 0.4 { reset() }
+        lastTime = time
+        if ratio >= 0.65 { active = false; ready = true; anchor = nil; return 0 }
+        if !active {
+            guard ready, ratio <= 0.35 else { return 0 }
+            active = true; ready = false; anchor = y; return 0
+        }
+        guard let origin = anchor else { anchor = y; return 0 }
+        let delta = y - origin
+        guard abs(delta) >= 0.004 else { return 0 }
+        anchor = y
+        // Vision Y increases upwards: positive wheel deltas scroll towards the top.
+        return Int32(max(-100, min(100, delta * 1800)))
+    }
+}
+
 enum HandPose: Equatable {
     case fist, closing, open, other, unknown
 }
@@ -262,6 +287,32 @@ func handGestureSelfTest() -> (tests: Int, failures: [String]) {
         tests += 1
         if !okay { failures.append(message) }
     }
+    var scroll = ScrollPinchLatch()
+    check(scroll.update(ratio: 0.2, y: 0.5, eligible: true, time: 0) == 0 && !scroll.active,
+          "Scroll requires an open hand sample before pinching")
+    _ = scroll.update(ratio: 0.8, y: 0.5, eligible: true, time: 0.1)
+    check(scroll.update(ratio: 0.2, y: 0.5, eligible: true, time: 0.2) == 0 && scroll.active,
+          "Starting scroll captures an anchor without a jump")
+    check(scroll.update(ratio: 0.5, y: 0.502, eligible: true, time: 0.25) == 0,
+          "Scroll ignores small hand jitter and tolerates pinch hysteresis")
+    check(scroll.update(ratio: 0.2, y: 0.52, eligible: true, time: 0.3) > 0,
+          "Upward hand movement scrolls up")
+    check(scroll.update(ratio: 0.2, y: 0.48, eligible: true, time: 0.35) < 0,
+          "Downward hand movement reverses scrolling")
+    check(scroll.update(ratio: 0.2, y: 0.9, eligible: true, time: 0.4) == 100,
+          "Large motion is capped")
+    check(scroll.update(ratio: 0.8, y: 0.5, eligible: true, time: 0.45) == 0 && !scroll.active,
+          "Releasing pinky immediately stops scrolling")
+    _ = scroll.update(ratio: 0.2, y: 0.5, eligible: true, time: 0.5)
+    check(scroll.update(ratio: 0.2, y: 0.6, eligible: false, time: 0.55) == 0 && !scroll.active,
+          "Conflicting gestures cancel scrolling")
+    _ = scroll.update(ratio: 0.8, y: 0.5, eligible: true, time: 0.6)
+    _ = scroll.update(ratio: 0.2, y: 0.5, eligible: true, time: 0.65)
+    check(scroll.update(ratio: 0.2, y: 0.7, eligible: true, time: 1.2) == 0 && !scroll.active,
+          "Tracking gaps never resume a held scroll")
+    scroll.reset()
+    check(scroll.update(ratio: 0.2, y: 0.7, eligible: true, time: 1.3) == 0 && !scroll.active,
+          "Pause reset requires a fresh pinch")
     var pinch = HoldPinchLatch()
     check(pinch.update(ratio: 0.2, eligible: true, time: 0) == .none && !pinch.active,
           "Starting with pinched fingers requires a visible release")

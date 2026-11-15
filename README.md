@@ -41,6 +41,7 @@ You may need to quit and restart after changing permissions. The app starts **PA
 | Briefly pinch thumb + middle finger, then release | One left click on release |
 | Hold thumb + middle finger together for about **0.7 seconds** | One double-click at the pinch position; release before triggering another click |
 | Pinch thumb + ring finger | Right click |
+| Hold thumb and pinky together, then move your hand up/down | Scroll up/down under the pointer; release to resume pointer movement |
 | Clench a fist briefly, then fully open your hand | Show the current desktop's windows in Mission Control |
 | Name a nearby control, such as “Codex” or “open Reports” | Argmax transcription → accessibility labels and local OCR → Bonsai selection → pointer positioning; no click |
 | Say **“last page”** | Go back to the previous page in the active browser or the previously visited folder in Finder, without moving or clicking the pointer |
