@@ -18,7 +18,7 @@ class TestTargetSelection(unittest.TestCase):
                    for index, label in enumerate(labels)]
         def reply(route, payload):
             data = json.loads(payload['messages'][1]['content'])
-            self.assertCountEqual([item['label'] for item in data['candidates']], labels)
+            self.assertTrue(all(item['label'] in labels for item in data['candidates']))
             chosen = next(item['id'] for item in data['candidates'] if item['label'] == chosen_label)
             return {"choices": [{"message": {"content": json.dumps({"target_id": chosen})}}]}
         with patch.object(client, '_request', side_effect=reply):
@@ -70,8 +70,7 @@ class TestTargetSelection(unittest.TestCase):
         def reply(route, payload):
             data = json.loads(payload['messages'][1]['content'])
             self.assertEqual(data['transcript'], 'Finder')
-            self.assertEqual([o['label'] for o in data['candidates']], ['Finder','Codex','A long instruction near the buttons'])
-            self.assertEqual([o['id'] for o in data['candidates']], ['0','1','2'])
+            self.assertEqual(data['candidates'], [{'id':'0', 'label':'Finder'}])
             return {"choices":[{"finish_reason":"stop","message":{"content":'{"target_id":"0"}'}}]}
         with patch.object(client, '_request', side_effect=reply):
             self.assertEqual(client.select_target('finder.', options).target_id, 'target-12')
@@ -94,12 +93,11 @@ class TestTargetSelection(unittest.TestCase):
                 self.assertIsNone(client.select_target(text, [{"id":"a","label":"Codex"}]).target_id)
             request.assert_not_called()
 
-    def test_unrelated_conversation_and_wrong_exact_label_are_vetoed(self):
+    def test_unrelated_conversation_is_vetoed_and_request_wrappers_are_supported(self):
         client = BonsaiClient('http://127.0.0.1:1234', 'bonsai-local')
         response = {"choices":[{"message":{"content":'{"target_id":"0"}'}}]}
         with patch.object(client, '_request', return_value=response):
             self.assertIsNone(client.select_target('My hand', [{"id":"title","label":"Local Control · Hand + Voice"}]).target_id)
-            self.assertIsNone(self.choose_label('finder', ['Codex', 'Finder'], 'Codex'))
             self.assertEqual(client.select_target('打开Codex那个标签', [{"id":"a","label":"Codex"}]).target_id, 'a')
             self.assertEqual(client.select_target('open the Safari tab', [{"id":"b","label":"Safari"}]).target_id, 'b')
             self.assertIsNone(client.select_target('cat', [{"id":"b","label":"category"}]).target_id)
@@ -173,9 +171,16 @@ class TestTargetSelection(unittest.TestCase):
         for text, labels, intended in cases:
             with self.subTest(text=text):
                 self.assertEqual(self.choose_label(text, labels, intended), f'native-{labels.index(intended)}')
-                for other in labels:
-                    if other != intended:
-                        self.assertIsNone(self.choose_label(text, labels, other))
+
+    def test_a_model_cannot_choose_a_removed_unrelated_label(self):
+        client = BonsaiClient('http://127.0.0.1:1234', 'bonsai-local')
+        options = [{"id": "native-0", "label": "Codex"}, {"id": "native-1", "label": "Finder"}]
+        def reply(route, payload):
+            data = json.loads(payload['messages'][1]['content'])
+            self.assertEqual(data['candidates'], [{"id": "0", "label": "Finder"}])
+            return {"choices": [{"message": {"content": '{"target_id":"1"}'}}]}
+        with patch.object(client, '_request', side_effect=reply), self.assertRaises(BonsaiError):
+            client.select_target('finder', options)
 
     def test_model_null_is_never_replaced_with_a_local_matching_target(self):
         client = BonsaiClient('http://127.0.0.1:1234', 'bonsai-local')
@@ -185,22 +190,71 @@ class TestTargetSelection(unittest.TestCase):
                 {"id": "downloads", "label": "Downloads — 12 items"}]).target_id)
             request.assert_called_once()
 
-    def test_supported_names_are_presented_first_without_removing_other_candidates(self):
+    def test_ambiguity_requires_valid_model_output_and_returns_all_original_ids(self):
         client = BonsaiClient('http://127.0.0.1:1234', 'bonsai-local')
-        for transcript, label in (("格式", "格式"), ("open Downloads", "Downloads — 12 items")):
+        options = [{"id": "left", "label": "Save"}, {"id": "right", "label": "SAVE"},
+                   {"id": "other", "label": "Some unrelated prose"}]
+        for content in ('{"target_id":"0"}', '{"target_id":"1"}', '{"target_id":null}'):
+            response = {"choices": [{"message": {"content": content}}]}
+            with self.subTest(content=content), patch.object(client, '_request', return_value=response):
+                selected = client.select_target('Save', options)
+                self.assertIsNone(selected.target_id)
+                self.assertEqual(selected.candidate_ids, ("left", "right"))
+        for content in ('{"target_id":"9"}', '{"target_id":0}', '{"target_id":null,"candidate_ids":["left"]}',
+                        '{"target_id":"0","action":"click"}', 'not JSON'):
+            response = {"choices": [{"message": {"content": content}}]}
+            with self.subTest(content=content), patch.object(client, '_request', return_value=response), self.assertRaises(BonsaiError):
+                client.select_target('Save', options)
+
+    def test_ambiguity_cannot_include_a_selected_target_or_invalid_ids(self):
+        for target, candidate_ids in (("left", ("left", "right")), (None, ("left",)),
+                                      (None, ("left", "left")), (None, ("left", 2)),
+                                      (None, ["left", "right"])):
+            with self.subTest(target=target, candidate_ids=candidate_ids), self.assertRaises(ValueError):
+                SelectedTarget(target, candidate_ids=candidate_ids)
+
+    def test_only_supported_names_are_presented_without_rewriting_labels(self):
+        client = BonsaiClient('http://127.0.0.1:1234', 'bonsai-local')
+        cases = (("格式", "格式"), ("open Downloads", "Downloads — 12 items"),
+                 ("Codex", "1 Codex"), ("go to Safari", "2 Safari"),
+                 ("move to Finder", "3 Finder"))
+        for transcript, label in cases:
             options = [{"id": f"word-{index}", "label": word}
                        for index, word in enumerate(["a", "is", "the", "or", "Some document prose"])]
             options.append({"id": "actual-control", "label": label})
             def reply(route, payload):
                 data = json.loads(payload['messages'][1]['content'])
-                self.assertEqual(data['candidates'][0], {"id": "0", "label": label})
-                self.assertCountEqual([item['label'] for item in data['candidates']],
-                                      [item['label'] for item in options])
-                self.assertEqual(len({item['id'] for item in data['candidates']}), len(options))
+                self.assertEqual(data['candidates'], [{"id": "0", "label": label}])
+                self.assertEqual(data['transcript'], transcript)
                 return {"choices": [{"message": {"content": '{"target_id":null}'}}]}
             with self.subTest(transcript=transcript), patch.object(client, '_request', side_effect=reply) as request:
                 self.assertIsNone(client.select_target(transcript, options).target_id)
                 request.assert_called_once()
+
+    def test_all_ambiguous_matches_are_preserved_for_the_model(self):
+        client = BonsaiClient('http://127.0.0.1:1234', 'bonsai-local')
+        for labels in (("Save", "SAVE"), ("1 Reports", "2 Reports"),
+                       ("Downloads — 12 items", "Downloads — 3 items")):
+            name = "Save" if labels[0] == "Save" else "Reports" if "Reports" in labels[0] else "Downloads"
+            options = [{"id": f"target-{index}", "label": label} for index, label in enumerate(labels)]
+            options.append({"id": "unrelated", "label": "Some unrelated prose"})
+            def reply(route, payload):
+                data = json.loads(payload['messages'][1]['content'])
+                self.assertCountEqual([item['label'] for item in data['candidates']], labels)
+                self.assertEqual(len({item['id'] for item in data['candidates']}), len(labels))
+                return {"choices": [{"message": {"content": '{"target_id":"0"}'}}]}
+            with self.subTest(labels=labels), patch.object(client, '_request', side_effect=reply) as request:
+                self.assertIsNone(client.select_target(name, options).target_id)
+                request.assert_called_once()
+
+    def test_no_named_candidate_abstains_without_model_inference(self):
+        client = BonsaiClient('http://127.0.0.1:1234', 'bonsai-local')
+        options = [{"id": "a", "label": "Local Control · Hand + Voice"},
+                   {"id": "b", "label": "1 Codex"}]
+        with patch.object(client, '_request') as request:
+            for transcript in ("My hand", "go to Missing", "I talked about Codex yesterday"):
+                self.assertIsNone(client.select_target(transcript, options).target_id)
+            request.assert_not_called()
 
 
 if __name__ == '__main__':

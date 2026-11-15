@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Local Control · Duplicate targets</title>
+  <style>
+    :root { font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #182c3c; background: #f3f6f8; }
+    main { max-width: 640px; margin: 28px auto; padding: 20px; }
+    h1 { font-size: 26px; }
+    p { line-height: 1.6; }
+    .targets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; margin: 30px 0; }
+    button { min-height: 100px; font: 600 28px -apple-system, sans-serif; background: white; border: 2px solid #8097a7; border-radius: 14px; cursor: pointer; }
+    button:hover { outline: 4px solid #ebba50; }
+    button:focus-visible { outline: 4px solid #125cb3; }
+    output { display: block; padding: 16px; border-radius: 12px; background: white; line-height: 1.7; }
+    .note { color: #435969; font-size: 13px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Same-name target practice</h1>
+  <p>Keep your hand visible and point near the middle button. Say the name on the buttons, wait for the numbered circles, then say a number. Use a pinch to click after the pointer arrives.</p>
+  <div class="targets">
+    <button type="button">Reports</button>
+    <button type="button">Reports</button>
+    <button type="button">Reports</button>
+  </div>
+  <output id="result" aria-live="polite">Hovered position: none · Clicked position: none · Clicks: 0</output>
+  <p class="note">Choices expire after 15 seconds. Say “cancel” to dismiss them. This page uses no network, records no audio or video, and does not move the pointer. Browser events can come from a regular mouse or system input; they do not prove a hand gesture was used.</p>
+</main>
+<script>
+  const positions = ['left', 'middle', 'right'];
+  let hovered = 'none', clicked = 'none', count = 0;
+  function render() {
+    document.querySelector('output').textContent = `Hovered position: ${hovered} · Clicked position: ${clicked} · Clicks: ${count}`;
+  }
+  document.querySelectorAll('button').forEach((button, index) => {
+    button.addEventListener('pointerenter', () => { hovered = positions[index]; render(); });
+    button.addEventListener('click', () => { clicked = positions[index]; count += 1; render(); });
+  });
+</script>
+</body>
+</html>

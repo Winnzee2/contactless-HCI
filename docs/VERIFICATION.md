@@ -1,6 +1,20 @@
 # 离线验证记录与复现
 
-The later [cross-application verification](CROSS_APP.md) adds five successful Wi-Fi-off target-selection checks in Finder, TextEdit, and Safari, plus the target highlight/countdown. After the Mission Control recovery fix, the regression suite contains **94 Python checks and 125 native checks**. Earlier human-input and component records retain their original scope; they do not substitute for physical acceptance of the new gestures.
+The [cross-application verification](CROSS_APP.md) includes successful Wi-Fi-off target-selection checks in Finder, TextEdit, and Safari. The target-board fix and numbered-choice revision pass **129 Python tests and 162 native checks**. Earlier human-input and component records retain their original scope; they do not substitute for physical acceptance of the new gestures or numbered-choice flow.
+
+## Target Board Recovery and Numbered Choices
+
+On November 14, 2026 (Eastern time), the reported board failure was reproduced with real native Safari candidates and the installed Bonsai model. Speech transcription was correct; irrelevant OCR instructions distracted Bonsai into choosing the page's word “label.” Narrowing model context to labels supported by the spoken name fixed all 12 board requests (Codex, Safari, Finder, with four phrasing variants each), while retaining the strict model ID/null boundary. Five previous Finder/TextEdit/Safari fixtures and eight negative/ambiguity checks also passed. Actual Argmax recordings synthesized locally then selected the correct board target for all three names through the real worker and coordinator.
+
+The duplicate-target test used three separate Reports buttons in a local Safari page. With **Wi-Fi Off**, two actual native screen captures, local synthesized speech, real Argmax, real Bonsai, and the coordinator produced three numbered choices, followed by one correct `move_to` instruction for the middle button after “number two.” No click was requested. Wi-Fi was restored to its original On state afterward. Hand tracking and the overlay acknowledgment were simulated in this pipeline test; the captured movement instruction was not sent to the system mouse.
+
+A separate real Argmax worker replay passed five cases: bare “two,” “number two,” Chinese “第二个,” cancel, and silence. Very short numbered recordings receive silence padding to keep the utterance decodable; the spoken waveform is unchanged. Number follow-ups require no Bonsai completion call. Silence and cancellation produced no target.
+
+The actual AppKit circles were rendered over the Safari fixture and visually inspected. All three targets had legible badges in left-to-right order. Suspend/resume preserved the original deadline, a stale resume ID failed, foreground app activation stayed unchanged, and expiration removed the circles. The first preview harness called AppKit before launch initialization and failed its visual check; after correcting that isolated harness, the production overlay rendered successfully.
+
+All **129 Python tests**, including real Argmax integration, and **162 native checks** passed with Wi-Fi off. Coverage includes candidate filtering, worker protocol, number parsing, stable numbering, display acknowledgment, expiry during inference, gesture/context cancellation, stale results, one-to-one recapture matching, final target revalidation, and overlay geometry. The native helper was rebuilt and signed locally. These are component and synthetic-input checks, not a physical microphone/hand acceptance recording of the new flow.
+
+Evidence remains local under ignored `.build/verification/board-recovery/` and `.build/verification/duplicate-targets/`: `fixed-model-replay.json`, `real-worker-pipeline.json`, `pipeline.json`, `worker-replay.json`, `wifi.json`, `python-tests.txt`, `native-tests.json`, `overlay-lifecycle.txt`, and `numbered-circles.png`. No screen captures, model weights, or recordings are committed.
 
 ## Mission Control Input Recovery
 

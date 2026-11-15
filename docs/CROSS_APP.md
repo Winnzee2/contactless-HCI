@@ -6,6 +6,8 @@ Point near the intended control, say its visible label or accessible name, and p
 
 A cyan ring and a click-through caption identify the voice target. The caption counts down the three-second protection period, then displays “Pinch to click.” A click, pause, tracking loss, or deliberate movement after the protection period clears the lock and highlight. Beginning another voice search hides the old highlight before capture.
 
+When several nearby targets match the same spoken name, each gets a numbered circle. The pointer stays where it is until you say a displayed number, such as “two,” “number two,” or “第二个.” The selected target is checked again before the pointer moves, then receives the usual three-second hold. You still use a hand gesture to click.
+
 Clench a fist briefly, then fully open your hand to display the current desktop's windows in Mission Control. Starting a pinch or fist gesture invalidates any pending voice result so that an old result cannot move the pointer during the action. Speech still only positions the pointer; it cannot double-click or open Mission Control.
 
 ## Discovery and Selection
@@ -13,11 +15,21 @@ Clench a fist briefly, then fully open your hand to display the current desktop'
 1. Speech onset captures a region of about 720 × 420 points around the pointer on the primary display.
 2. A bounded, read-only macOS Accessibility scan collects named visible controls. Each accepted control is checked against an accessibility hit test at its screen position. This covers native menus, folder icons, browser tabs, links, and named toolbar buttons.
 3. Vision OCR supplies visible text when an application does not expose useful control names. Word boxes preserve the positions of individual labels instead of aiming at the center of a whole text line.
-4. Accessibility and OCR readings of the same control are merged. Finder icon captions are associated through element identity even when their text sits below the icon. Distinct controls with the same name remain distinct and ambiguous.
-5. Argmax returns a transcript. Local Bonsai receives only candidate IDs and labels, with likely name matches presented first. Every candidate remains available to the model. It selects an existing ID or abstains; it never supplies coordinates or executes commands.
-6. The coordinator validates the result and requests movement to the captured target. Only the hand gesture path sends clicks.
+4. Accessibility and OCR readings of the same control are merged. Finder icon captions are associated through element identity even when their text sits below the icon. Distinct controls with the same name remain separate candidates.
+5. Argmax returns a transcript. Generic English and Chinese name matching narrows the model input to candidates supported by that transcript, preserving original labels and IDs and all matching duplicates. Bonsai receives only IDs and labels through request-local ID aliases. It must return a valid candidate ID or null; it never supplies coordinates or executes commands. Removing unrelated screen prose also fixes the offline target board's “No confident match” failure for correctly recognized target names.
+6. A unique valid selection requests movement to the captured target. Multiple matching targets produce numbered circles without moving the pointer. The follow-up number is transcribed locally by Argmax and interpreted only within that displayed choice set. Fresh screen checks bind the selection to the target's current position. Only the hand gesture path sends clicks.
 
 Accessibility reads do not request text-field values, selected text, or document contents, and do not perform accessibility actions. OCR reads the visible pixels in the local capture region. The target scanner does not download assets or make network requests. Bonsai and Argmax keep their existing offline network restrictions.
+
+## Choosing Between Duplicate Targets
+
+The app numbers all matching targets in the original search region from top to bottom and left to right. The numbers and original search area stay fixed while your hand moves. Keep your hand visible, wait for the circles, then say one displayed number. “Two,” “number two,” and “第二个” all identify target 2. Say “cancel” to dismiss the choices. Circles are click-through and do not take keyboard focus.
+
+Choices expire after **15 seconds**. An unrecognized or out-of-range number leaves the same choices available for the remaining time; it does not extend the deadline. A pause, tracking loss, pinch or fist gesture, mouse click, scroll, keypress, application switch, or desktop Space change clears the choices. Say the target name again to start a new search.
+
+Before processing the number, the app recaptures the original region with its overlays hidden and matches each original choice to one fresh target by label and nearby bounds. It checks the selected target once more after transcription, immediately before moving. Missing, moved, or ambiguous targets cancel the selection rather than reassigning the displayed numbers. The resolved number only positions the pointer; the usual three-second protection period gives you time to pinch.
+
+Open the [duplicate-target practice page](../assets/demo/duplicate-targets.html) locally to try three buttons named “Reports.” Point near the middle button, say “Reports,” then say the number on the intended circle and pinch to click. The [original offline target board](../assets/demo/target-board.html) remains available for unique names. These fixtures need no network and do not receive special treatment in discovery or selection.
 
 ## Actual App Checks
 
@@ -67,7 +79,7 @@ Normal runtime does not save these diagnostic snapshots. Explicit diagnostics ca
 
 - Visible, named controls work best. Unlabeled icons, custom canvases without accessibility names, hidden controls, and protected content may have no usable target. Hand movement and pinch clicks still operate the system pointer.
 - Discovery stays near the pointer and on the primary display. Move closer to a target first; scrolling, window rearrangement, or content changes during recognition can invalidate the captured location.
-- Distinct controls with the same name require a clearer label or a closer pointer position that excludes the other control. The program does not guess between them.
+- Distinct nearby controls matching the same name are numbered for spoken selection. Only targets discovered in the original region are included; move closer and start again if the intended control is outside that area.
 - Model output can still be invalid or unrelated, especially with noisy speech or crowded interfaces. Validation rejects those results without a coordinate fallback or automatic click.
 - Voice phrases such as “open Reports” mean **position the pointer on Reports**. Hold the thumb-and-middle-finger pinch for about 0.7 seconds to double-click and open that folder.
 

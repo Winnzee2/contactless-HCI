@@ -4,6 +4,57 @@ import AppKit
 import ApplicationServices
 import Vision
 
+/// Shared caption identity for merging discovery results and checking a target
+/// again immediately before moving. This performs no application access.
+func screenTargetLabelKey(_ label: String) -> String {
+    // Match the selector's NFKC, case, punctuation and Chinese spacing
+    // normalization so two readings of one caption cannot become fake
+    // duplicates (for example Save As… versus Save As...).
+    let folded = label.precomposedStringWithCompatibilityMapping
+        .folding(options: [.caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+        .replacingOccurrences(of: "&", with: " and ")
+    let characters = folded.unicodeScalars.map { scalar -> String in
+        switch scalar.properties.generalCategory {
+        case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter,
+             .decimalNumber, .letterNumber, .otherNumber: return String(scalar)
+        default: return " "
+        }
+    }.joined().split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    return characters.replacingOccurrences(of: "(?<=[\\u3400-\\u9fff])\\s+|\\s+(?=[\\u3400-\\u9fff])",
+                                          with: "", options: .regularExpression)
+}
+
+/// Return fresh coordinates only when one nearby, similarly sized control still
+/// has the same canonical caption. Discovery IDs are request-local, so they do
+/// not identify a control across captures. Never guess between nearby duplicates.
+func revalidatedScreenTarget(_ original: [String: Any], in candidates: [[String: Any]]) -> CGPoint? {
+    func geometry(_ value: [String: Any]) -> [Double]? {
+        var numbers: [Double] = []
+        for field in ["x", "y", "width", "height"] {
+            guard let number = value[field] as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.doubleValue.isFinite else { return nil }
+            numbers.append(number.doubleValue)
+        }
+        guard numbers[2] > 0, numbers[3] > 0 else { return nil }
+        return numbers
+    }
+    guard let label = original["label"] as? String,
+          let bounds = geometry(original) else { return nil }
+    let key = screenTargetLabelKey(label)
+    guard !key.isEmpty else { return nil }
+    var point: CGPoint?
+    for candidate in candidates {
+        guard let caption = candidate["label"] as? String, screenTargetLabelKey(caption) == key,
+              let fresh = geometry(candidate),
+              abs(fresh[0] - bounds[0]) <= 12, abs(fresh[1] - bounds[1]) <= 12,
+              abs(fresh[2] - bounds[2]) <= max(4, min(12, bounds[2] * 0.15)),
+              abs(fresh[3] - bounds[3]) <= max(4, min(12, bounds[3] * 0.15)) else { continue }
+        if point != nil { return nil }
+        point = CGPoint(x: fresh[0], y: fresh[1])
+    }
+    return point
+}
+
 private struct ScreenTarget {
     let label: String
     let rect: CGRect
@@ -18,21 +69,7 @@ private struct ScreenTarget {
         self.source = source
         self.confidence = confidence
         self.role = role
-        // Match the selector's NFKC, case, punctuation and Chinese spacing
-        // normalization so two readings of one caption cannot become fake
-        // duplicates (for example Save As… versus Save As...).
-        let folded = label.precomposedStringWithCompatibilityMapping
-            .folding(options: [.caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
-            .replacingOccurrences(of: "&", with: " and ")
-        let characters = folded.unicodeScalars.map { scalar -> String in
-            switch scalar.properties.generalCategory {
-            case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter,
-                 .decimalNumber, .letterNumber, .otherNumber: return String(scalar)
-            default: return " "
-            }
-        }.joined().split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-        self.key = characters.replacingOccurrences(of: "(?<=[\\u3400-\\u9fff])\\s+|\\s+(?=[\\u3400-\\u9fff])",
-                                                   with: "", options: .regularExpression)
+        self.key = screenTargetLabelKey(label)
     }
     func json(_ index: Int) -> [String: Any] {
         ["id": "target-\(index)", "label": String(label.prefix(200)),
@@ -502,5 +539,68 @@ func screenTargetGeometrySelfTest() -> (tests: Int, failures: [String]) {
           "Caption hit-testing to the same icon is merged outside the icon rectangle")
     check(!captionMatchesControl(iconCaption, icon),
           "Separate nonoverlapping equal labels are not merged without AX identity")
+    let original = ax.json(0)
+    var moved = original
+    moved["x"] = ax.rect.midX + 12
+    moved["y"] = ax.rect.midY - 12
+    moved["id"] = "new-discovery-id"
+    moved["label"] = " ＳＡＶＥ… "
+    check(revalidatedScreenTarget(original, in: [moved]) == CGPoint(x: ax.rect.midX + 12, y: ax.rect.midY - 12),
+          "Final revalidation returns fresh coordinates for a small move and equivalent caption")
+    check(revalidatedScreenTarget(original, in: []) == nil,
+          "A disappeared control cannot receive a delayed pointer move")
+    check(revalidatedScreenTarget(original, in: [original, moved]) == nil,
+          "Two nearby equal captions make final revalidation ambiguous")
+    var renamed = moved
+    renamed["label"] = "Delete"
+    check(revalidatedScreenTarget(original, in: [renamed]) == nil,
+          "A renamed control is rejected even at the same coordinates")
+    var distant = moved
+    distant["x"] = ax.rect.midX + 12.01
+    check(revalidatedScreenTarget(original, in: [distant]) == nil,
+          "Horizontal layout movement beyond the tolerance cancels the target")
+    distant["x"] = ax.rect.midX
+    distant["y"] = ax.rect.midY - 12.01
+    check(revalidatedScreenTarget(original, in: [distant]) == nil,
+          "Vertical layout movement beyond the tolerance cancels the target")
+    var resized = original
+    resized["width"] = ax.rect.width + 12
+    resized["height"] = ax.rect.height + 6
+    check(revalidatedScreenTarget(original, in: [resized]) != nil,
+          "Small size changes remain inside the capped proportional tolerance")
+    resized["width"] = ax.rect.width + 12.01
+    check(revalidatedScreenTarget(original, in: [resized]) == nil,
+          "A substantially resized width no longer identifies the original control")
+    resized["width"] = ax.rect.width
+    resized["height"] = ax.rect.height + 6.01
+    check(revalidatedScreenTarget(original, in: [resized]) == nil,
+          "Height tolerance scales with the original control rather than the fresh size")
+    for field in ["x", "y", "width", "height"] {
+        var malformed = original
+        malformed[field] = true
+        check(revalidatedScreenTarget(original, in: [malformed]) == nil,
+              "Boolean \(field) is rejected in fresh target geometry")
+        check(revalidatedScreenTarget(malformed, in: [original]) == nil,
+              "Boolean \(field) is rejected in original target geometry")
+    }
+    for value in [Double.nan, Double.infinity, -Double.infinity] {
+        var malformed = original
+        malformed["x"] = value
+        check(revalidatedScreenTarget(original, in: [malformed]) == nil,
+              "Nonfinite target coordinates cannot pass final revalidation")
+    }
+    var empty = original
+    empty["width"] = 0
+    check(revalidatedScreenTarget(original, in: [empty]) == nil,
+          "Zero-width target geometry is rejected")
+    empty["width"] = -10
+    check(revalidatedScreenTarget(original, in: [empty]) == nil,
+          "Negative-width target geometry is rejected")
+    empty = original
+    empty["label"] = "…"
+    check(revalidatedScreenTarget(empty, in: [empty]) == nil,
+          "Punctuation-only captions cannot identify a target")
+    check(screenTargetLabelKey("打开 设置") == "打开设置" && screenTargetLabelKey("Save & Exit…") == "save and exit",
+          "Final revalidation uses the same Chinese, punctuation and ampersand normalization as discovery")
     return (tests, failures)
 }

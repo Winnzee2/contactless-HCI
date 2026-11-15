@@ -70,7 +70,7 @@ class TestDesktopReadiness(unittest.TestCase):
             app = root / "app"
             app.write_text("binary")
             paths = [root / "native/GestureCamera.swift", root / "native/ScreenTargets.swift",
-                     root / "native/TargetOverlay.swift",
+                     root / "native/TargetOverlay.swift", root / "native/DuplicateTargetOverlay.swift",
                      root / "native/HandGestures.swift", root / "native/DesktopActions.swift",
                      root / "native/Info.plist", root / "scripts/build_gesture_app.sh"]
             for path in paths:

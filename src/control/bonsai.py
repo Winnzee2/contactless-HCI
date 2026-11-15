@@ -44,12 +44,18 @@ class BonsaiError(RuntimeError):
 class SelectedTarget:
     target_id: Optional[str] = None
     reason: str = ""
+    candidate_ids: tuple = ()
 
     def __post_init__(self):
         if self.target_id is not None and (not isinstance(self.target_id, str) or not self.target_id):
             raise ValueError("Target must be an ID string or None")
         if not isinstance(self.reason, str) or len(self.reason) > 240:
             raise ValueError("Selection reason must be a short string")
+        if not isinstance(self.candidate_ids, tuple) or (self.candidate_ids and (
+                self.target_id is not None or not 2 <= len(self.candidate_ids) <= MAX_CANDIDATES
+                or any(not isinstance(identifier, str) or not identifier for identifier in self.candidate_ids)
+                or len(set(self.candidate_ids)) != len(self.candidate_ids))):
+            raise ValueError("Ambiguity requires distinct candidate IDs and no selected target")
 
 
 def normalize_candidates(candidates):
@@ -174,7 +180,7 @@ def _names_label(transcript, label):
 
 
 def _matching_candidates(transcript, candidates):
-    """Find evidence for vetoes only; Bonsai must still choose the target ID."""
+    """Find named candidates for model context and output validation."""
     for names in _spoken_name_groups(transcript):
         for name in names:
             exact = [item for item in candidates if _name(item["label"]) == name]
@@ -317,13 +323,14 @@ class BonsaiClient:
         # Short, request-local aliases avoid this small model dropping the
         # "target-" prefix or returning a label in place of a long native ID.
         # Only the strict alias chosen by the model maps back to its screen ID.
-        # Present labels supported by the spoken name first so OCR prose does
-        # not bury a control in a busy app. This only orders the complete list:
-        # Bonsai still chooses an ID (or null), and its choice is checked below.
+        # Restrict context to labels supported by the spoken name. Unrelated OCR
+        # prose can distract this small model even when the matching control is
+        # first. Preserve every matching label, including ambiguous duplicates;
+        # Bonsai must still return a valid ID or null before anything can move.
         matches, is_exact = _matching_candidates(transcript, candidates)
-        supported_ids = {item["id"] for item in matches}
-        ordered = sorted(candidates, key=lambda item: (
-            item["id"] not in supported_ids,
+        if not matches:
+            return SelectedTarget(None, "No visible label was explicitly named")
+        ordered = sorted(matches, key=lambda item: (
             not any(char.isalpha() for char in item["label"]), len(item["label"])))
         aliases = [{"id": str(index), "label": item["label"]}
                    for index, item in enumerate(ordered)]
@@ -368,6 +375,12 @@ class BonsaiClient:
             except (KeyError, TypeError, ValueError) as error:
                 raise BonsaiError("Local model completion has an invalid format.") from error
         selection = parse_target(content, aliases)
+        # An ambiguity may only surface after the model returned a valid known
+        # alias or null. Its candidates come from the original screen snapshot,
+        # never from model-supplied lists or coordinates.
+        if len(matches) > 1:
+            return SelectedTarget(None, "Spoken name matches more than one label",
+                                  tuple(item["id"] for item in matches))
         if selection.target_id is None:
             return selection
         target = by_alias[selection.target_id]
@@ -375,6 +388,4 @@ class BonsaiClient:
             return SelectedTarget(None, "Model choice disagrees with the exact spoken label")
         if target not in matches:
             return SelectedTarget(None, "Selected label was not explicitly named")
-        if len(matches) > 1:
-            return SelectedTarget(None, "Spoken name matches more than one label")
         return SelectedTarget(target["id"], selection.reason)

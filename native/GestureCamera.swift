@@ -307,6 +307,17 @@ final class ControlWindow: NSWindow {
     override var canBecomeKey: Bool { true }
 }
 
+private struct TargetCapture {
+    let targets: [[String: Any]]
+    let region: CGRect
+    let pointer: CGPoint
+    let foregroundPID: pid_t?
+    let generation: Int
+    let capturedAt: TimeInterval
+    let choiceID: String?
+    let choiceDeadline: TimeInterval?
+}
+
 final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate, AVCaptureVideoDataOutputSampleBufferDelegate {
     let cameraIndex: Int
     let useVoice: Bool
@@ -338,6 +349,11 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     var lastRawPoint: CGPoint?
     var targetLock = TargetLock()
     let targetOverlay = TargetOverlay()
+    let duplicateOverlay = DuplicateTargetOverlay()
+    private var targetCaptures: [String: TargetCapture] = [:]
+    private var latestCaptureID: String?
+    private var contextGeneration = 0
+    private var contextObservers: [NSObjectProtocol] = []
     var seenIDs: [String] = []
     var localMonitor: Any?
     var globalMonitor: Any?
@@ -403,17 +419,42 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         NSApp.activate(ignoringOtherApps: true)
     }
     func installKeyboard() {
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        let contextEvents: NSEvent.EventTypeMask = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: contextEvents) { [weak self] event in
             guard let self = self else { return event }
+            self.invalidateTargetContext()
+            guard event.type == .keyDown else { return event }
             if event.isARepeat { return event }
             if event.keyCode == 53 { self.setArmed(false); return nil }
             if event.keyCode == 49 { self.toggle(); return nil }
             if event.charactersIgnoringModifiers?.lowercased() == "q" { self.shutdown(); return nil }
             return event
         }
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == 53 { DispatchQueue.main.async { self?.setArmed(false) } }
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: contextEvents) { [weak self] event in
+            self?.invalidateTargetContext()
+            if event.type == .keyDown && event.keyCode == 53 { self?.setArmed(false) }
         }
+        for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
+            contextObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.invalidateTargetContext()
+            })
+        }
+    }
+    func invalidateTargetContext() {
+        contextGeneration += 1
+        targetCaptures.removeAll()
+        latestCaptureID = nil
+        if let id = duplicateOverlay.choiceID {
+            duplicateOverlay.hide()
+            emit(["type": "choices_cancel", "choice_id": id])
+        }
+    }
+    private func currentCapture(_ id: String) -> TargetCapture? {
+        guard id == latestCaptureID, let capture = targetCaptures[id], capture.generation == contextGeneration,
+              now() - capture.capturedAt <= 20,
+              capture.foregroundPID == NSWorkspace.shared.frontmostApplication?.processIdentifier,
+              capture.choiceDeadline.map({ now() < $0 }) ?? true else { return nil }
+        return capture
     }
     func requestCamera() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -513,6 +554,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         missionControlTransition.cancel()
         targetLock.clear()
         targetOverlay.hide()
+        invalidateTargetContext()
         mic.setArmed(value && tracked)
         stateLabel.stringValue = value ? "ENABLED · Index finger moves pointer · Escape pauses" : "PAUSED · Pointer and speech actions are disabled"
         toggleButton.title = value ? "Pause pointer" : "Enable pointer"
@@ -538,7 +580,10 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         guard busy != gestureBusy else { return }
         gestureBusy = busy
         mic.setArmed(armed && tracked && !busy)
-        if busy { emit(["type": "gesture_cancel", "source": "gesture"]) }
+        if busy {
+            invalidateTargetContext()
+            emit(["type": "gesture_cancel", "source": "gesture"])
+        }
     }
     var acceptsVoiceTarget: Bool {
         !gestureBusy && !missionControlTransition.blocksInput(time: now()) && now() - lastActionTime >= 0.5
@@ -641,6 +686,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         targetOverlay.hide()
         pointer = nil
         if tracked {
+            invalidateTargetContext()
             emit(["type": "pointer", "tracked": false, "x": 0, "y": 0])
             tracked = false
         }
@@ -648,6 +694,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func click(_ action: PointerClickAction, at point: CGPoint) {
         guard armed, tracked, now() - lastHandTime <= 0.4, AXIsProcessTrusted(), now() - lastActionTime >= 0.5 else { return }
         guard let events = makePointerClickEvents(action, at: point) else { return }
+        invalidateTargetContext()
         let button: CGMouseButton = action == .right ? .right : .left
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: button)?.post(tap: .cghidEventTap)
         for event in events { event.post(tap: .cghidEventTap) }
@@ -692,6 +739,14 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             captureTargets(json)
             return
         }
+        if json["type"] as? String == "show_choices" {
+            showChoices(json)
+            return
+        }
+        if json["type"] as? String == "clear_choices" {
+            if let id = json["choice_id"] as? String, id == duplicateOverlay.choiceID { duplicateOverlay.hide() }
+            return
+        }
         guard let instruction = VoiceAction(json, bounds: screen) else {
             emit(["type": "error", "message": "Rejected invalid native control message."]); return
         }
@@ -700,13 +755,80 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if seenIDs.count > 128 { seenIDs.removeFirst() }
         if instruction.action == "none" { return }
         guard let point = instruction.point else { return }
+        guard let capture = currentCapture(instruction.requestID),
+              capture.choiceID == json["choice_id"] as? String else { return }
+        if capture.choiceID != nil {
+            let originals = capture.targets.filter {
+                guard let label = $0["label"] as? String, let requested = json["label"] as? String,
+                      let x = $0["x"] as? Double, let y = $0["y"] as? Double else { return false }
+                return screenTargetLabelKey(label) == screenTargetLabelKey(requested) &&
+                    abs(x - point.x) < 0.01 && abs(y - point.y) < 0.01
+            }
+            guard originals.count == 1 else { return }
+            // A page can rearrange itself without a mouse/key event while the
+            // number is transcribed. Confirm the target again just before moving.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                let fresh = await discoverTargets(region: capture.region, pointer: capture.pointer)
+                guard currentCapture(instruction.requestID) != nil,
+                      let confirmed = revalidatedScreenTarget(originals[0], in: fresh) else {
+                    emit(["type": "error", "request_id": instruction.requestID,
+                          "message": "Target changed or choices expired. Say the target name again."])
+                    return
+                }
+                performVoiceMove(instruction, point: confirmed, label: json["label"] as? String ?? "Selected target")
+            }
+            return
+        }
+        performVoiceMove(instruction, point: point, label: json["label"] as? String ?? "Selected target")
+    }
+    func performVoiceMove(_ instruction: VoiceAction, point: CGPoint, label: String) {
+        guard currentCapture(instruction.requestID) != nil else { return }
         guard armed, tracked, acceptsVoiceTarget, now() - lastHandTime <= 0.4, AXIsProcessTrusted(), let anchor = lastRawPoint else { return }
         let lockedAt = now()
         targetLock.hold(point, anchor: anchor, time: lockedAt); pointer = point
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
-        targetOverlay.show(point: point, label: json["label"] as? String ?? "Selected target", protectedUntil: lockedAt + 3)
+        targetOverlay.show(point: point, label: label, protectedUntil: lockedAt + 3)
         emit(["type": "pointer", "x": point.x, "y": point.y, "tracked": true])
         emit(["type": "action", "action": "move_to", "source": "voice", "x": point.x, "y": point.y, "request_id": instruction.requestID])
+    }
+    func showChoices(_ json: [String: Any]) {
+        guard let id = json["choice_id"] as? String, !id.isEmpty, id.count <= 100 else { return }
+        func reject() { emit(["type": "choices_cancel", "choice_id": id]) }
+        guard armed, tracked, acceptsVoiceTarget, now() - lastHandTime <= 0.4,
+              let requestID = json["request_id"] as? String, requestID == id,
+              let capture = currentCapture(requestID), capture.choiceID == nil,
+              let raw = json["options"] as? [[String: Any]], (2...100).contains(raw.count),
+              let duration = json["duration"] as? NSNumber,
+              CFGetTypeID(duration) != CFBooleanGetTypeID(), duration.doubleValue.isFinite,
+              duration.doubleValue > 0, duration.doubleValue <= 15 else { reject(); return }
+        var ids = Set<String>()
+        var options: [NumberedTarget] = []
+        for (index, item) in raw.enumerated() {
+            guard let number = item["number"] as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.doubleValue == Double(index + 1),
+                  let targetID = item["id"] as? String, ids.insert(targetID).inserted,
+                  let original = capture.targets.first(where: { $0["id"] as? String == targetID }),
+                  let label = item["label"] as? String, label == original["label"] as? String else { reject(); return }
+            var values: [Double] = []
+            for field in ["x", "y", "width", "height"] {
+                guard let value = item[field] as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID(),
+                      value.doubleValue.isFinite, let known = original[field] as? NSNumber,
+                      abs(value.doubleValue - known.doubleValue) < 0.01 else { reject(); return }
+                values.append(value.doubleValue)
+            }
+            let point = CGPoint(x: values[0], y: values[1])
+            guard screen.contains(point), values[2] > 0, values[3] > 0 else { reject(); return }
+            options.append(NumberedTarget(number: index + 1, id: targetID, label: label, point: point,
+                                          bounds: CGRect(x: point.x - values[2] / 2, y: point.y - values[3] / 2,
+                                                         width: values[2], height: values[3])))
+        }
+        targetLock.clear(); targetOverlay.hide()
+        guard duplicateOverlay.show(choiceID: id, options: options, duration: duration.doubleValue, onExpire: { [weak self] expired in
+            self?.invalidateTargetContext()
+            emit(["type": "choices_cancel", "choice_id": expired])
+        }) else { reject(); return }
+        emit(["type": "choices_shown", "choice_id": id])
     }
     func captureTargets(_ json: [String: Any]) {
         let id = (json["request_id"] as? String) ?? ""
@@ -729,10 +851,28 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let region = CGRect(x: clamp(x.doubleValue - width / 2, screen.minX, screen.maxX - width),
                             y: clamp(y.doubleValue - height / 2, screen.minY, screen.maxY - height),
                             width: width, height: height)
-        // Keep the previous target's label out of the next OCR snapshot.
+        let choiceID = json["choice_id"] as? String
+        if let choiceID = choiceID {
+            guard duplicateOverlay.choiceID == choiceID, now() < duplicateOverlay.expiresAt else {
+                fail("Numbered choices expired. Say the target name again."); return
+            }
+        }
+        let choiceDeadline = choiceID == nil ? nil : duplicateOverlay.expiresAt
+        latestCaptureID = id
+        let generation = contextGeneration
+        let foregroundPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        // Keep both kinds of labels out of OCR; suspension preserves the deadline.
         targetOverlay.hide()
-        Task {
+        duplicateOverlay.suspend()
+        Task { @MainActor in
+            // Let WindowServer commit the hidden panels before capturing pixels.
+            try? await Task.sleep(nanoseconds: 50_000_000)
             let targets = await discoverTargets(region: region, pointer: CGPoint(x: x.doubleValue, y: y.doubleValue))
+            guard generation == contextGeneration,
+                  foregroundPID == NSWorkspace.shared.frontmostApplication?.processIdentifier else {
+                fail("Screen context changed. Point and speak again."); return
+            }
+            if let choiceID = choiceID { _ = duplicateOverlay.resume(choiceID: choiceID) }
             if targets.isEmpty && !CGPreflightScreenCaptureAccess() {
                 DispatchQueue.main.async {
                     _ = CGRequestScreenCaptureAccess()
@@ -740,6 +880,11 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 }
                 return
             }
+            if targetCaptures.count >= 16 { targetCaptures.removeAll() }
+            targetCaptures[id] = TargetCapture(targets: targets, region: region,
+                                              pointer: CGPoint(x: x.doubleValue, y: y.doubleValue), foregroundPID: foregroundPID,
+                                              generation: generation, capturedAt: now(),
+                                              choiceID: choiceID, choiceDeadline: choiceDeadline)
             emit(["type": "targets", "request_id": id, "targets": targets,
                   "region": ["x": region.minX, "y": region.minY, "width": region.width, "height": region.height]])
         }
@@ -756,6 +901,8 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         watchTimer?.invalidate()
         if let monitor = localMonitor { NSEvent.removeMonitor(monitor) }
         if let monitor = globalMonitor { NSEvent.removeMonitor(monitor) }
+        for observer in contextObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        contextObservers.removeAll()
         mic.stop()
         sessionQueue.async {
             self.captureOutput?.setSampleBufferDelegate(nil, queue: nil)
@@ -840,7 +987,7 @@ func selfTest() -> Bool {
         fputs("Target overlay self-test failed: \(overlayTests.failures.joined(separator: "; "))\n", stderr)
         exit(1)
     }
-    for result in [handGestureSelfTest(), desktopActionSelfTest()] {
+    for result in [handGestureSelfTest(), desktopActionSelfTest(), duplicateTargetOverlayGeometrySelfTest()] {
         tests += result.tests
         if !result.failures.isEmpty {
             fputs("Gesture self-test failed: \(result.failures.joined(separator: "; "))\n", stderr)
