@@ -19,6 +19,8 @@ def navigation_intent(transcript: str) -> Optional[str]:
     text = re.sub(r"(?: please|谢谢)$", "", text).strip()
     if re.fullmatch(r"(?:go |navigate )back(?: to (?:the )?(?:last|previous) page)?|last page|返回上一页|回到上一页", text):
         return "back"
+    if text in ("all windows", "show all windows", "show all the windows", "显示所有窗口"):
+        return "all_windows"
     if text in ("close tab", "close the current tab", "close this tab", "关闭当前标签页"):
         return "close_tab"
     if text in ("close window", "close this window", "close the current window", "关闭窗口"):

@@ -1,5 +1,11 @@
 # 离线验证记录与复现
 
+## All Windows Voice Command
+
+“All windows” and “show all windows” now route through the explicit navigation allowlist to the existing native Mission Control launcher. The action works independently of browser type and readable screen targets. It clears stale target locks without setting a gesture-busy latch, allowing normal pointer and pinch handling in the overview. Jarvis dictation records the phrase as text.
+
+The Python suite passed 185 tests (187 discovered, two optional integration tests skipped), and all 316 native self-test checks passed. Tests cover phrase variants, rejected negations/mentions, worker routing on an empty screen, matching native acknowledgments, dictation isolation, and strict native message validation. No new physical gesture acceptance test was performed.
+
 ## Offline Jarvis Notepad
 
 On November 15, 2026, “Hey Jarvis” gained a dedicated dictation route. A floating monospaced notepad collects consecutive Argmax transcripts without passing them to Bonsai target selection or navigation. Five seconds of microphone silence, “Bye Jarvis,” or the Stop recording button ends recording; pending audio finishes transcription before saving a unique UTF-8 .txt file. The folder picker remembers its selection, with Documents/Local Control Notes as the initial default.

@@ -39,7 +39,7 @@ class TestCoordinator(unittest.TestCase):
         self.assertIsNone(self.coordinator.pending_navigation)
 
     def test_window_commands_need_matching_action_ack(self):
-        for action in ("close_window", "change_window"):
+        for action in ("close_window", "change_window", "all_windows"):
             self.setUp()
             self.submit()
             self.coordinator.handle({"type": "navigation", "request_id": "a", "action": action}, source="worker")

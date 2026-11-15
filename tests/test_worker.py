@@ -25,7 +25,8 @@ class TestVoiceWorker(unittest.TestCase):
     def test_jarvis_and_dictation_bypass_navigation_and_bonsai(self):
         for kind, phrase, expected in (("search", "Hey Jarvis, buy milk", "jarvis"),
                                        ("dictate", "Close window.", "dictation"),
-                                       ("dictate", "Bye Jarvis.", "dictation")):
+                                       ("dictate", "Bye Jarvis.", "dictation"),
+                                       ("dictate", "All windows.", "dictation")):
             with self.subTest(kind=kind, phrase=phrase), patch.object(worker, "WhisperKitEngine") as engine, \
                  patch.object(worker, "BonsaiClient") as model, \
                  patch.object(worker.sys, "stdin", io.StringIO(json.dumps(dict(self.request, type=kind)) + "\n")), \
@@ -64,6 +65,16 @@ class TestVoiceWorker(unittest.TestCase):
         self.assertEqual([record["type"] for record in records], ["worker_ready", "transcript", "selection"])
         self.assertEqual(records[-1], {"type": "selection", "request_id": "a", "target_id": "tab", "reason": "matching label"})
 
+    def test_all_windows_bypasses_bonsai_on_empty_screen(self):
+        with patch.object(worker, "WhisperKitEngine") as engine, patch.object(worker, "BonsaiClient") as model, \
+             patch.object(worker.sys, "stdin", io.StringIO(json.dumps(dict(self.request, targets=[])) + "\n")), \
+             redirect_stdout(io.StringIO()) as output:
+            engine.return_value.transcribe_bytes.return_value = SimpleNamespace(text="All windows.")
+            self.assertEqual(worker.run(self.args), 0)
+            model.return_value.select_target.assert_not_called()
+        records = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual(records[-1], {"type": "navigation", "request_id": "a", "action": "all_windows"})
+
     def test_last_page_is_recognized_only_as_a_complete_phrase(self):
         for transcript in ("last page", "Last Page.", "LAST PAGE!", "  last   page?  ", "ＬＡＳＴ ＰＡＧＥ。"):
             with self.subTest(transcript=transcript):
@@ -93,10 +104,11 @@ class TestVoiceWorker(unittest.TestCase):
             self.assertEqual(records[-1], {"type": "navigation", "request_id": "a", "action": "back"})
 
     def test_tab_and_window_commands(self):
-        for phrase, action in (("close tab", "close_tab"), ("Please close this tab.", "close_tab"),
+        for phrase, action in (("all windows", "all_windows"), ("show all windows", "all_windows"),
+                               ("Could you show all windows please?", "all_windows"), ("close tab", "close_tab"), ("Please close this tab.", "close_tab"),
                                ("close window", "close_window"), ("change window", "change_window")):
             self.assertEqual(navigation_intent(phrase), action)
-        for phrase in ("Do not close tab", "If I say close tab", "close tab and quit", "Do not alt tab", "alt tab", "alt-tab", "all tab", "do not close window", "if I say change window", "close window and quit"):
+        for phrase in ("Do not show all windows", "If I say all windows", "all windows and close them", "all windows were open", "Do not close tab", "If I say close tab", "close tab and quit", "Do not alt tab", "alt tab", "alt-tab", "all tab", "do not close window", "if I say change window", "close window and quit"):
             self.assertIsNone(navigation_intent(phrase))
 
     def test_natural_navigation_and_small_transcription_error(self):
