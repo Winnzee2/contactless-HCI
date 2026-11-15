@@ -45,6 +45,17 @@ func makeHistoryBackEvents() -> [CGEvent]? {
     return [down, up]
 }
 
+/// Close only the current tab of the browser bound to the voice request.
+func makeCloseTabEvents() -> [CGEvent]? {
+    guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 0x0D, keyDown: true),
+          let up = CGEvent(keyboardEventSource: nil, virtualKey: 0x0D, keyDown: false) else { return nil }
+    for event in [down, up] {
+        event.flags = .maskCommand
+        event.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
+    }
+    return [down, up]
+}
+
 enum BrowserTabDirection {
     case left
     case right
@@ -145,6 +156,10 @@ func desktopActionSelfTest() -> (tests: Int, failures: [String]) {
     let second = makePointerClickEvents(.left, at: point, clickCount: 2) ?? []
     check(second.count == 2 && second.allSatisfy { $0.getIntegerValueField(.mouseEventClickState) == 2 },
           "Natural double click emits only its second down/up pair")
+    let close = makeCloseTabEvents() ?? []
+    check(close.map(\.type) == [.keyDown, .keyUp], "Close tab emits one down/up pair")
+    check(close.count == 2 && close.allSatisfy { $0.flags == .maskCommand && $0.getIntegerValueField(.keyboardEventKeycode) == 0x0D },
+          "Close tab only emits fixed Command-W")
     let back = makeHistoryBackEvents() ?? []
     check(back.map(\.type) == [.keyDown, .keyUp], "History Back is exactly one keyboard down/up pair")
     check(back.allSatisfy { $0.getIntegerValueField(.keyboardEventKeycode) == 0x21 },

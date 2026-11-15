@@ -183,16 +183,17 @@ private final class SensingRingView: NSView {
 
 private final class VoiceCaptionView: NSView {
     var text = ""
+    var heading = "SPEECH DETECTION"
     override var isOpaque: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func draw(_ dirtyRect: NSRect) {
         let card = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 14, yRadius: 14)
-        NSColor(srgbRed: 0.035, green: 0.045, blue: 0.06, alpha: 0.94).setFill(); card.fill()
+        NSColor(srgbRed: 0.035, green: 0.045, blue: 0.06, alpha: 0.62).setFill(); card.fill()
         let red = NSColor(srgbRed: 1, green: 0.22, blue: 0.27, alpha: 1)
         red.withAlphaComponent(0.4).setStroke(); card.lineWidth = 1; card.stroke()
         red.setFill()
         NSBezierPath(ovalIn: CGRect(x: 19, y: bounds.height - 27, width: 6, height: 6)).fill()
-        ("VOICE RECOGNIZED" as NSString).draw(at: CGPoint(x: 33, y: bounds.height - 30),
+        (heading as NSString).draw(at: CGPoint(x: 33, y: bounds.height - 30),
             withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold),
                              .foregroundColor: red.withAlphaComponent(0.85), .kern: 1.2])
         let paragraph = NSMutableParagraphStyle()
@@ -204,13 +205,13 @@ private final class VoiceCaptionView: NSView {
 }
 
 /// Presentation only: no targeting radius restriction, input events, or saved speech.
-/// Suspension keeps these visuals out of OCR without extending the caption deadline.
+/// The persistent caption is excluded from screen capture by its owning process.
 final class SensingOverlay {
     private var ringPanel: TargetOverlayPanel?
     private var captionPanel: TargetOverlayPanel?
     private var point: CGPoint?
-    private var transcript = ""
-    private var expiresAt: TimeInterval = 0
+    private var transcript = "Voice paused"
+    private var heading = "SPEECH DETECTION"
     private var suspensions = 0
 
     private func panel(view: NSView) -> TargetOverlayPanel {
@@ -234,18 +235,27 @@ final class SensingOverlay {
         precondition(Thread.isMainThread)
         let clean = text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
         guard !clean.isEmpty, time.isFinite else { return }
-        transcript = String(clean.prefix(300)); expiresAt = time + 8
+        transcript = String(clean.prefix(300)); heading = "VOICE RECOGNIZED"
         refresh(time: time)
+    }
+    func showState(_ text: String, time: TimeInterval) {
+        precondition(Thread.isMainThread)
+        // Keep the recognized words visible while matching/action statuses change.
+        if text.hasPrefix("Listening") || heading != "VOICE RECOGNIZED" || text == "Voice paused" || text.hasPrefix("Ready") {
+            transcript = String(text.prefix(300)); heading = "SPEECH DETECTION"
+            refresh(time: time)
+        }
     }
     func clear() {
         precondition(Thread.isMainThread)
-        point = nil; transcript = ""; expiresAt = 0
-        ringPanel?.orderOut(nil); captionPanel?.orderOut(nil)
+        point = nil; transcript = "Voice paused"; heading = "SPEECH DETECTION"
+        ringPanel?.orderOut(nil)
+        refresh(time: ProcessInfo.processInfo.systemUptime)
     }
     func suspend() {
         precondition(Thread.isMainThread)
         suspensions += 1
-        ringPanel?.orderOut(nil); captionPanel?.orderOut(nil)
+        ringPanel?.orderOut(nil)
     }
     func resume(time: TimeInterval) {
         precondition(Thread.isMainThread)
@@ -254,13 +264,11 @@ final class SensingOverlay {
     }
     func refresh(time: TimeInterval) {
         precondition(Thread.isMainThread)
-        if time >= expiresAt { transcript = "" }
-        guard suspensions == 0 else { return }
         let display = CGMainDisplayID(), quartz = CGDisplayBounds(CGMainDisplayID())
         guard let screen = NSScreen.screens.first(where: {
             ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == display
-        }) else { clear(); return }
-        if let point = point, point.x.isFinite, point.y.isFinite, quartz.contains(point) {
+        }) else { ringPanel?.orderOut(nil); captionPanel?.orderOut(nil); return }
+        if suspensions == 0, let point = point, point.x.isFinite, point.y.isFinite, quartz.contains(point) {
             let center = overlayScreenPoint(point, quartzBounds: quartz, appKitFrame: screen.frame)
             // Clip at display edges; never shift the center away from the cursor.
             let frame = CGRect(x: center.x - 86, y: center.y - 86, width: 172, height: 172).intersection(screen.frame)
@@ -280,7 +288,7 @@ final class SensingOverlay {
             if captionPanel == nil { captionPanel = panel(view: VoiceCaptionView()) }
             captionPanel?.setFrame(frame, display: false)
             if let view = captionPanel?.contentView as? VoiceCaptionView {
-                view.frame = CGRect(origin: .zero, size: frame.size); view.text = transcript; view.needsDisplay = true
+                view.frame = CGRect(origin: .zero, size: frame.size); view.text = transcript; view.heading = heading; view.needsDisplay = true
             }
             if captionPanel?.isVisible == false { captionPanel?.orderFrontRegardless() }
         } else { captionPanel?.orderOut(nil) }

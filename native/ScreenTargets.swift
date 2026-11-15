@@ -239,6 +239,10 @@ private func onScreenTargetWindows(in region: CGRect) -> [TargetWindow] {
               let dictionary = entry[kCGWindowBounds as String] as? NSDictionary,
               let rect = CGRect(dictionaryRepresentation: dictionary), usableTargetRect(rect),
               rect.intersects(region), (entry[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1 > 0.01 else { return nil }
+        // Our floating feedback panels are excluded from captured pixels and
+        // must not occlude the real targets beneath them in AX/OCR merging.
+        if owner.int32Value == ProcessInfo.processInfo.processIdentifier,
+           (entry[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0 > 0 { return nil }
         return TargetWindow(pid: owner.int32Value, rect: rect)
     }
 }

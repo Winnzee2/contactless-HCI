@@ -29,6 +29,15 @@ class TestCoordinator(unittest.TestCase):
         self.coordinator.handle({"type": "targets", "request_id": "a", "targets": [self.target]})
         self.coordinator.handle({"type": "speech_audio", "request_id": "a", "pcm_base64": "AAA=", "sample_rate": 16000})
 
+    def test_close_tab_requires_matching_native_acknowledgment(self):
+        self.submit()
+        self.coordinator.handle({"type": "navigation", "request_id": "a", "action": "close_tab"}, source="worker")
+        self.assertEqual(self.native[-1], {"type": "voice_action", "request_id": "a", "action": "close_tab"})
+        self.coordinator.handle({"type": "action", "source": "voice", "request_id": "a", "action": "tab_right"}, source="native")
+        self.assertIsNotNone(self.coordinator.pending_navigation)
+        self.coordinator.handle({"type": "action", "source": "voice", "request_id": "a", "action": "close_tab"}, source="native")
+        self.assertIsNone(self.coordinator.pending_navigation)
+
     def test_target_and_audio_can_arrive_in_either_order(self):
         self.begin()
         self.coordinator.handle({"type": "speech_audio", "request_id": "a", "pcm_base64": "AAA=", "sample_rate": 16000})

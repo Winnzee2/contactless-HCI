@@ -19,6 +19,10 @@ def navigation_intent(transcript: str) -> Optional[str]:
     text = re.sub(r"(?: please|谢谢)$", "", text).strip()
     if re.fullmatch(r"(?:go |navigate )back(?: to (?:the )?(?:last|previous) page)?|last page|返回上一页|回到上一页", text):
         return "back"
+    if text in ("close tab", "close the current tab", "close this tab", "关闭当前标签页"):
+        return "close_tab"
+    if text in ("alt tab", "alt-tab", "all tab"):
+        return "tab_right"
     match = re.fullmatch(r"(?:tab|tap) (left|right)|(?:switch|go|move) to (?:the )?tab (?:on|to) (?:the )?(left|right)", text)
     if match:
         return "tab_" + (match.group(1) or match.group(2))

@@ -66,6 +66,8 @@ class PendingNavigation:
 
 
 NAVIGATION_MESSAGES = {
+    "close_tab": {"start": "Closing the current browser tab…", "sent": "Close-tab shortcut sent.",
+                  "retry": "Close tab was not confirmed. Say “close tab” again.", "phrase": "close tab"},
     "back": {"start": "Going back to the previous page…", "sent": "Back navigation sent.",
              "retry": "Back navigation was not confirmed. Say “last page” again.", "phrase": "last page"},
     "tab_left": {"start": "Switching to the tab on the left…", "sent": "Tab left shortcut sent.",

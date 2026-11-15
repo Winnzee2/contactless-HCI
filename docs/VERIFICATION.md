@@ -1,5 +1,12 @@
 # 离线验证记录与复现
 
+## Persistent Speech Panel and Browser Commands
+
+On November 15, 2026, the speech panel became persistent, with a translucent background and a native speech-onset callback for immediate “Listening…” feedback. It remains visible during screen capture; ScreenCaptureKit excludes the app's windows and target discovery ignores its floating panels. Final transcript text stays until a new utterance or pause state.
+
+The Python suite passed 160 tests, with two optional tests skipped (162 discovered). All 289 native checks passed, including fixed Command-W generation and the close-tab message schema. A separate AppKit probe verified persistent visibility during capture, after the former timeout, and while paused, with click-through panels and unchanged focus/cursor. The first cursor check was interrupted by active hand control; it passed with hand control paused. Real local Argmax replay recognized “Close tab,” transcribed “Alt tab” as “All tab” (handled by a narrow alias), and rejected “Do not close tab.” These checks did not close any user browser tabs. Evidence is in ignored `.build/verification/persistent-speech/`.
+
+
 ## Cursor Sensing Circle and Recognized Speech Caption
 
 On November 15, 2026 (Eastern time), a cyan cursor ring and an upper-right red speech caption were added. The caption receives only a current, submitted worker transcript; it displays the recognized text for eight seconds without sending an input action. The ring is visual feedback and does not restrict full-screen targeting. Both panels are suspended throughout native target discovery, including asynchronous capture, then restored without extending the caption deadline.

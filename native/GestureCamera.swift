@@ -85,12 +85,12 @@ struct VoiceAction {
     init?(_ json: [String: Any], bounds: CGRect) {
         guard json["type"] as? String == "voice_action",
               let action = json["action"] as? String,
-              ["move_to", "back", "tab_left", "tab_right", "none"].contains(action),
+              ["move_to", "back", "tab_left", "tab_right", "close_tab", "none"].contains(action),
               let id = json["request_id"] as? String, !id.isEmpty, id.count <= 128 else { return nil }
         self.action = action
         self.requestID = id
         if action == "none" { self.point = nil; return }
-        if ["back", "tab_left", "tab_right"].contains(action) {
+        if ["back", "tab_left", "tab_right", "close_tab"].contains(action) {
             // Navigation has a fixed meaning, never caller-supplied keys or URLs.
             guard Set(json.keys).isSubset(of: ["type", "action", "request_id", "choice_id"]),
                   json["choice_id"] == nil || json["choice_id"] is String else { return nil }
@@ -202,7 +202,7 @@ func captureScreenRegion(_ region: CGRect) async throws -> CGImage {
     guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
         throw NSError(domain: "LocalControl", code: 5, userInfo: [NSLocalizedDescriptionKey: "Primary display is unavailable for local text recognition."])
     }
-    let filter = SCContentFilter(display: display, excludingWindows: [])
+    let filter = SCContentFilter(display: display, excludingWindows: content.windows.filter { $0.owningApplication?.processID == getpid() })
     let config = SCStreamConfiguration()
     config.sourceRect = CGRect(x: region.minX - screen.minX, y: region.minY - screen.minY,
                                width: region.width, height: region.height)
@@ -215,6 +215,7 @@ func captureScreenRegion(_ region: CGRect) async throws -> CGImage {
 }
 
 final class MicrophoneCapture {
+    var onSpeechStart: (() -> Void)?
     private let engine = AVAudioEngine()
     private let queue = DispatchQueue(label: "local.control.audio")
     private var armed = false
@@ -245,7 +246,12 @@ final class MicrophoneCapture {
             }
             self.queue.async {
                 guard self.armed else { return }
-                for event in self.clipper.process(samples) { emit(event) }
+                for event in self.clipper.process(samples) {
+                    if event["type"] as? String == "speech_start" {
+                        DispatchQueue.main.async { self.onSpeechStart?() }
+                    }
+                    emit(event)
+                }
             }
         }
         installed = true
@@ -422,6 +428,11 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             self.targetOverlay.refresh(now: now())
             self.sensingOverlay.updateCursor(self.armed && self.tracked ? CGEvent(source: nil)?.location : nil, time: now())
         }
+        mic.onSpeechStart = { [weak self] in
+            guard let self = self, self.armed, !self.closing else { return }
+            self.sensingOverlay.showState("Listening…", time: now())
+        }
+        sensingOverlay.showState("Voice paused", time: now())
         requestCamera()
     }
     func makeWindow() {
@@ -618,6 +629,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         stateLabel.stringValue = value ? "ENABLED · Index finger moves pointer · Escape pauses" : "PAUSED · Pointer and speech actions are disabled"
         toggleButton.title = value ? "Pause pointer" : "Enable pointer"
         refreshVoiceHint()
+        sensingOverlay.showState(value ? "Ready — speak a command" : "Voice paused", time: now())
         emit(["type": "state", "armed": value])
     }
     func refreshVoiceHint() {
@@ -833,6 +845,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if json["type"] as? String == "status", let message = json["message"] as? String {
             if json["important"] as? Bool == true || (armed && useVoice && audioStarted) { speechLabel.stringValue = String(message.prefix(400)) }
             else { refreshVoiceHint() }
+            if armed { sensingOverlay.showState(message, time: now()) }
             return
         }
         if json["type"] as? String == "capture_targets" {
@@ -854,7 +867,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         seenIDs.append(instruction.requestID)
         if seenIDs.count > 128 { seenIDs.removeFirst() }
         if instruction.action == "none" { return }
-        if ["back", "tab_left", "tab_right"].contains(instruction.action) {
+        if ["back", "tab_left", "tab_right", "close_tab"].contains(instruction.action) {
             performVoiceNavigation(instruction, choiceID: json["choice_id"] as? String)
             return
         }
@@ -907,12 +920,12 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 return
             }
             shortcut = makeHistoryBackEvents()
-        } else if instruction.action == "tab_left" || instruction.action == "tab_right" {
+        } else if ["tab_left", "tab_right", "close_tab"].contains(instruction.action) {
             guard isBrowserApplication(bundleIdentifier: application.bundleIdentifier) else {
-                fail("Tab left and tab right work in a web browser. Bring your browser to the front and try again.")
+                fail("Tab commands work in a web browser. Bring your browser to the front and try again.")
                 return
             }
-            shortcut = makeBrowserTabEvents(instruction.action == "tab_left" ? .left : .right)
+            shortcut = instruction.action == "close_tab" ? makeCloseTabEvents() : makeBrowserTabEvents(instruction.action == "tab_left" ? .left : .right)
         } else { fail("Unsupported navigation command."); return }
         guard let events = shortcut else { fail("Could not create the navigation shortcut."); return }
         guard armed, tracked, acceptsVoiceTarget, now() - lastHandTime <= 0.4,
@@ -1129,7 +1142,7 @@ func selfTest() -> Bool {
         json["action"] = forbiddenAction
         check(VoiceAction(json, bounds: bounds) == nil, "gesture actions cannot be supplied by voice")
     }
-    for action in ["back", "tab_left", "tab_right"] {
+    for action in ["back", "tab_left", "tab_right", "close_tab"] {
         let navigation: [String: Any] = ["type": "voice_action", "action": action, "request_id": "navigation-test"]
         check(VoiceAction(navigation, bounds: bounds)?.action == action, "Explicit navigation requires no target coordinates")
         check(VoiceAction(navigation, bounds: bounds)?.point == nil, "Navigation does not position or click the mouse")
