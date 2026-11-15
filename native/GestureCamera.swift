@@ -147,6 +147,7 @@ struct SpeechClipper {
     var recording: [Float] = []
     var loudSamples = 0
     var quietSamples = 0
+    var activitySamples = 0
     var requestID: String?
     mutating func reset() -> String? {
         let old = requestID
@@ -159,6 +160,11 @@ struct SpeechClipper {
         let rms = sqrt(samples.reduce(0.0) { $0 + Double($1 * $1) } / Double(samples.count))
         let loud = rms >= 0.018
         var events: [[String: Any]] = []
+        activitySamples = loud ? activitySamples + samples.count : 0
+        if activitySamples >= Int(rate * 0.1) {
+            events.append(["type": "speech_activity"])
+            activitySamples = 0
+        }
         if requestID == nil {
             preRoll.append(contentsOf: samples)
             let maximum = Int(rate * 0.25)
@@ -380,6 +386,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     let frameQueue = DispatchQueue(label: "local.control.vision")
     let request = VNDetectHumanHandPoseRequest()
     let mic = MicrophoneCapture()
+    let notes = NotesPanel()
     var window: ControlWindow!
     var preview: PreviewView!
     var stateLabel: NSTextField!
@@ -435,6 +442,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         makeWindow()
+        notes.onStop = { emit(["type": "note_stop"]) }
         installKeyboard()
         readInput()
         emit(["type": "ready", "armed": false, "screen_width": screen.width, "screen_height": screen.height, "screen_x": screen.minX, "screen_y": screen.minY])
@@ -479,7 +487,8 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         quit.bezelStyle = .rounded
         let sound = NSButton(checkboxWithTitle: "Sound effects", target: self, action: #selector(toggleSound(_:)))
         sound.state = soundEnabled ? .on : .off
-        let buttons = NSStackView(views: [toggleButton, quit, sound]); buttons.orientation = .horizontal; buttons.spacing = 12
+        let notesFolder = NSButton(title: "Notes folder…", target: notes, action: #selector(NotesPanel.chooseFolder))
+        let buttons = NSStackView(views: [toggleButton, quit, sound, notesFolder]); buttons.orientation = .horizontal; buttons.spacing = 12
         rangeLabel = NSTextField(labelWithString: String(format: "Pointer reach: %.0f%%", pointerGain * 100))
         let reach = NSSlider(value: pointerGain, minValue: 1, maxValue: 1.5, target: self, action: #selector(changePointerGain(_:)))
         reach.setAccessibilityLabel("Pointer reach")
@@ -856,6 +865,10 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
     func handleInput(_ json: [String: Any]) {
         guard !closing else { return }
+        if json["type"] as? String == "note_update" {
+            notes.update(json)
+            return
+        }
         if json["type"] as? String == "voice_feedback" {
             guard armed, useVoice, Set(json.keys) == ["type", "request_id", "text"],
                   let id = json["request_id"] as? String, currentCapture(id) != nil,
@@ -1137,6 +1150,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
     func shutdown() {
         guard !closing else { return }
+        notes.saveBeforeExit()
         setArmed(false); closing = true
         watchTimer?.invalidate()
         if let monitor = localMonitor { NSEvent.removeMonitor(monitor) }
@@ -1281,7 +1295,8 @@ func selfTest() -> Bool {
     var clipper = SpeechClipper(rate: 1000)
     check(clipper.process([Float](repeating: 0, count: 200)).isEmpty, "silence emits no clip")
     let start = clipper.process([Float](repeating: 0.2, count: 100))
-    check(start.count == 1 && start.first?["type"] as? String == "speech_start", "speech begins")
+    check(start.filter { $0["type"] as? String == "speech_start" }.count == 1, "speech begins")
+    check(start.contains { $0["type"] as? String == "speech_activity" }, "Loud audio reports activity for note silence deadline")
     let audio = clipper.process([Float](repeating: 0, count: 600))
     check(audio.count == 1 && audio.first?["type"] as? String == "speech_audio", "silence ends clip")
     check(clipper.requestID == nil && clipper.recording.isEmpty, "clip state resets")

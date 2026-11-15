@@ -29,7 +29,7 @@ def app_is_current():
     built_at = APP.stat().st_mtime_ns
     inputs = tuple(ROOT / path for path in (
         "native/GestureCamera.swift", "native/ScreenTargets.swift", "native/TargetOverlay.swift", "native/DuplicateTargetOverlay.swift",
-        "native/HandGestures.swift", "native/DesktopActions.swift", "native/Info.plist",
+        "native/HandGestures.swift", "native/NotesPanel.swift", "native/DesktopActions.swift", "native/Info.plist",
         "scripts/build_gesture_app.sh"))
     return all(path.is_file() and path.stat().st_mtime_ns <= built_at for path in inputs)
 

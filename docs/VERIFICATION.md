@@ -1,5 +1,14 @@
 # 离线验证记录与复现
 
+## Offline Jarvis Notepad
+
+On November 15, 2026, “Hey Jarvis” gained a dedicated dictation route. A floating monospaced notepad collects consecutive Argmax transcripts without passing them to Bonsai target selection or navigation. Five seconds of microphone silence, “Bye Jarvis,” or the Stop recording button ends recording; pending audio finishes transcription before saving a unique UTF-8 .txt file. The folder picker remembers its selection, with Documents/Local Control Notes as the initial default.
+
+Validation passed 184 Python tests (186 discovered, two optional integration tests skipped), 309 native self-test checks, and a real cached Argmax → worker → coordinator replay using synthesized speech. That replay produced the note and no cursor/window action. Argmax rendered “Bye Jarvis” as “buy Jarvis,” so a narrowly scoped end-of-utterance homophone was added and verified. Inference uses the existing OS sandbox denying network access; no new physical microphone or Wi-Fi-off demonstration was performed.
+
+Tests cover wake-prefix parsing, continuous speech activity, five-second silence, pending transcription at timeout, wake-time audio buffering, serial blocks, command-as-note isolation, explicit stop, pause, bounded backlog, worker errors, and forged events. A native temporary-directory probe verified UTF-8 file contents, exclusive creation, failed-save retention across two notes, and retry into another folder. The notepad was rendered and visually inspected. Local artifacts are in ignored .build/verification/jarvis/. Save failures retain text in memory only until app exit; queued audio cannot be recovered after quitting.
+
+
 ## Speech Continuity Across Screen Changes
 
 On November 15, 2026, microphone recording was separated from transient hand tracking and gesture preparation. Repeated microphone arming is now idempotent. Typing and scrolling no longer invalidate recognition; deliberate clicks, app/Space switches, pause, and expiration still cancel pending actions. Recognition results wait briefly for hand reacquisition, and late errors from cancelled work cannot replace a newer prompt. Named targets refresh their location before movement, while numbered targets retain their displayed positions.

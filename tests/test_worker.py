@@ -22,6 +22,21 @@ class TestVoiceWorker(unittest.TestCase):
         self.request = {"type": "search", "request_id": "a", "sample_rate": 16000,
                         "pcm_base64": "AAA=", "targets": [{"id": "tab", "label": "Codex", "x": 123, "y": 456}]}
 
+    def test_jarvis_and_dictation_bypass_navigation_and_bonsai(self):
+        for kind, phrase, expected in (("search", "Hey Jarvis, buy milk", "jarvis"),
+                                       ("dictate", "Close window.", "dictation"),
+                                       ("dictate", "Bye Jarvis.", "dictation")):
+            with self.subTest(kind=kind, phrase=phrase), patch.object(worker, "WhisperKitEngine") as engine, \
+                 patch.object(worker, "BonsaiClient") as model, \
+                 patch.object(worker.sys, "stdin", io.StringIO(json.dumps(dict(self.request, type=kind)) + "\n")), \
+                 redirect_stdout(io.StringIO()) as output:
+                engine.return_value.transcribe_bytes.return_value = SimpleNamespace(text=phrase)
+                self.assertEqual(worker.run(self.args), 0)
+                model.return_value.select_target.assert_not_called()
+            records = [json.loads(line) for line in output.getvalue().splitlines()]
+            self.assertEqual([x["type"] for x in records], ["worker_ready", expected])
+            self.assertEqual(records[-1]["text"], phrase)
+
     def test_invalid_request_never_enters_argmax(self):
         invalid = [dict(self.request, pcm_base64="invalid!"), dict(self.request, sample_rate=True),
                    dict(self.request, sample_rate=16000.5), dict(self.request, request_id=["bad"]),

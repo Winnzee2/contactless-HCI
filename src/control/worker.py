@@ -8,6 +8,7 @@ from stt import STTConfig, WhisperKitEngine
 from .bonsai import BonsaiClient, normalize_candidates
 from .number_choice import parse_number_choice
 from .voice_commands import navigation_intent
+from .notes import wake_text
 
 MAX_MESSAGE_CHARS = 2600000
 MAX_PCM_BYTES = 1600000
@@ -19,7 +20,7 @@ def emit(value):
 
 def decode_request(request):
     """Validate the local protocol before spending inference time on a clip."""
-    if not isinstance(request, dict) or request.get("type") not in {"search", "choose"}:
+    if not isinstance(request, dict) or request.get("type") not in {"search", "choose", "dictate"}:
         raise ValueError("Expected a search or choose request")
     if set(request) != {"type", "request_id", "pcm_base64", "sample_rate", "targets"}:
         raise ValueError("Invalid voice request fields")
@@ -91,6 +92,10 @@ def run(args):
                                                 sample_rate=rate, auto_pad_short_audio=False)
             else:
                 result = engine.transcribe_bytes(audio, is_raw_pcm=True, sample_rate=rate)
+            if request["type"] == "dictate" or wake_text(result.text) is not None:
+                emit({"type": "dictation" if request["type"] == "dictate" else "jarvis",
+                      "request_id": request_id, "text": result.text})
+                continue
             emit({"type": "transcript", "request_id": request_id, "text": result.text})
             navigation = navigation_intent(result.text)
             if navigation is not None:

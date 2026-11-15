@@ -190,3 +190,13 @@ While control is enabled, listening is independent of hand tracking and ordinary
 A named target is checked again against the current screen before the pointer moves. If it moved, the pointer follows its refreshed location; if it disappeared or became ambiguous, the app asks you to name it again. Already displayed numbered choices remain anchored to their original positions and keep their original 15-second deadline.
 
 If recognition finishes while your hand is missing, the app waits up to five seconds for it to return before applying the result. A real click, switching apps or Spaces, pausing, or expiration cancels pending actions. No unfinished requests are replayed later. Voice still never clicks a target automatically.
+
+### Jarvis notepad
+
+Choose **Notes folder…** in the main window (or in the notepad) to select where .txt notes are saved. The folder is remembered. Until you choose one, notes use ~/Documents/Local Control Notes.
+
+With voice control enabled, say **“Hey Jarvis”**. A small floating notepad opens; speak your note naturally. You can include the note in the same utterance as the wake phrase. Speech is transcribed locally with Argmax, and successive speech blocks are collected into one note. During dictation, words such as “close window” are note text and never execute commands.
+
+Say **“Bye Jarvis”**, press **Stop recording**, or leave **five seconds of silence** to finish. The silence timer uses microphone activity rather than transcription completion. Pending transcription finishes before saving, so “Finishing” can remain visible briefly after recording stops. The wake and stop phrases are omitted from the note. Argmax's end-of-utterance “buy Jarvis” / “by Jarvis” homophones also stop recording.
+
+Each session saves a separate UTF-8 text file with a unique identifier; existing notes are not overwritten. The window shows the saved path. If saving fails, text remains in memory: choose another folder or use **Retry save** before quitting. Quitting saves text already recognized, but cannot recover audio still being transcribed. A bounded transcription backlog stops with an explicit partial-note message if inference cannot keep up. The notepad remains visible after saving, while ordinary voice targeting resumes. No cloud service is used.

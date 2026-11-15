@@ -6,6 +6,7 @@ import time
 from typing import Dict, Optional
 
 from .bonsai import _name
+from .notes import Notes, wake_text
 
 
 @dataclass
@@ -81,8 +82,8 @@ NAVIGATION_MESSAGES = {
 }
 
 
-NATIVE_EVENTS = frozenset({"ready", "state", "pointer", "speech_start", "speech_cancel", "speech_audio", "targets", "error", "action", "gesture_cancel", "choices_shown", "choices_cancel", "context_changed"})
-WORKER_EVENTS = frozenset({"transcript", "selection", "navigation", "error"})
+NATIVE_EVENTS = frozenset({"ready", "state", "pointer", "speech_start", "speech_cancel", "speech_audio", "targets", "error", "action", "gesture_cancel", "choices_shown", "choices_cancel", "context_changed", "speech_activity", "note_stop"})
+WORKER_EVENTS = frozenset({"transcript", "selection", "navigation", "error", "jarvis", "dictation"})
 
 
 class Coordinator:
@@ -106,6 +107,7 @@ class Coordinator:
         self.deferred_result = None
         self.deferred_until = 0.0
         self.last_pointer = None
+        self.notes = Notes(send_native, send_worker, clock)
         self.last_transcript = ""
         self.last_target = ""
         self.region_width = 720
@@ -191,6 +193,10 @@ class Coordinator:
     def set_voice_ready(self, ready):
         self.voice_ready = ready is True
         if not self.voice_ready:
+            if self.notes.busy:
+                self.notes.inflight = None
+                self.notes.queue.clear()
+                self.notes.stop("Speech worker stopped; saving the recognized portion")
             self.worker_request = None
             self.invalidate()
 
@@ -206,6 +212,7 @@ class Coordinator:
         return key if isinstance(key, str) and 1 <= len(key) <= 100 else None
 
     def expire(self):
+        self.notes.tick()
         now = self.clock()
         if self.pointer is not None and now - self.pointer_at > 0.6:
             self.pointer = None
@@ -236,6 +243,20 @@ class Coordinator:
             allowed = NATIVE_EVENTS if source == "native" else WORKER_EVENTS if source == "worker" else ()
             if kind not in allowed:
                 return
+        # Audio activity can keep the event queue busy indefinitely; dictation
+        # deadlines must advance even when no idle poll or pointer update occurs.
+        self.notes.tick()
+        if self.notes.observe(event, source):
+            return
+        if kind == "jarvis" and source == "worker":
+            key = self.request_id(event)
+            search = self.pending.get(key)
+            if key == self.worker_request:
+                self.worker_request = None
+            if search is not None and search.submitted and self.armed and wake_text(event.get("text")) is not None:
+                self.invalidate()
+                self.notes.begin(key, event["text"])
+            return
         self.expire()
         if (kind == "selection" and source in (None, "worker")) or (kind == "navigation" and source == "worker"):
             search = self.pending.get(self.request_id(event))
