@@ -30,6 +30,40 @@ func makePointerClickEvents(_ action: PointerClickAction, at point: CGPoint) -> 
     return events
 }
 
+/// Construct the standard macOS browser Back shortcut without posting it.
+/// The controller must bind the request to the still-active browser before use.
+func makeBrowserBackEvents() -> [CGEvent]? {
+    // kVK_ANSI_LeftBracket from the local HIToolbox SDK. No transcript or model
+    // output can supply a key code, modifier, URL, or arbitrary keyboard action.
+    let leftBracket: CGKeyCode = 0x21
+    guard let down = CGEvent(keyboardEventSource: nil, virtualKey: leftBracket, keyDown: true),
+          let up = CGEvent(keyboardEventSource: nil, virtualKey: leftBracket, keyDown: false) else { return nil }
+    for event in [down, up] {
+        event.flags = .maskCommand
+        event.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
+    }
+    return [down, up]
+}
+
+private func registeredBrowserMatches(_ identifier: String?, handlers: Set<String>) -> Bool {
+    guard let identifier = identifier, !identifier.isEmpty else { return false }
+    return handlers.contains(identifier)
+}
+
+/// Consult only the local application registry. Looking up handlers does not
+/// open these inert URLs, access the network, or inspect browser history.
+func isBrowserApplication(bundleIdentifier: String?) -> Bool {
+    guard let identifier = bundleIdentifier, !identifier.isEmpty else { return false }
+    var handlers = Set<String>()
+    for scheme in ["https", "http"] {
+        guard let url = URL(string: "\(scheme)://example.invalid/") else { continue }
+        for application in NSWorkspace.shared.urlsForApplications(toOpen: url) {
+            if let bundleID = Bundle(url: application)?.bundleIdentifier { handlers.insert(bundleID) }
+        }
+    }
+    return registeredBrowserMatches(identifier, handlers: handlers)
+}
+
 func showMissionControl(completion: @escaping (Error?) -> Void) {
     let application = URL(fileURLWithPath: "/System/Applications/Mission Control.app", isDirectory: true)
     guard FileManager.default.fileExists(atPath: application.path) else {
@@ -72,5 +106,20 @@ func desktopActionSelfTest() -> (tests: Int, failures: [String]) {
     check((single + right + double).allSatisfy { $0.location == point }, "Every click edge uses the same captured pointer point")
     check(makePointerClickEvents(.double, at: CGPoint(x: Double.nan, y: 0)) == nil, "Nonfinite horizontal coordinates are rejected")
     check(makePointerClickEvents(.left, at: CGPoint(x: 0, y: Double.infinity)) == nil, "Nonfinite vertical coordinates are rejected")
+    let back = makeBrowserBackEvents() ?? []
+    check(back.map(\.type) == [.keyDown, .keyUp], "Browser Back is exactly one keyboard down/up pair")
+    check(back.allSatisfy { $0.getIntegerValueField(.keyboardEventKeycode) == 0x21 },
+          "Browser Back uses only the fixed left-bracket key")
+    check(back.allSatisfy { $0.flags == .maskCommand }, "Browser Back has Command and no extra modifiers")
+    check(back.allSatisfy { $0.getIntegerValueField(.keyboardEventAutorepeat) == 0 },
+          "Browser Back never requests keyboard repeat")
+    let handlers: Set<String> = ["com.apple.Safari", "org.example.NewBrowser"]
+    check(registeredBrowserMatches("com.apple.Safari", handlers: handlers), "A registered browser is accepted")
+    check(registeredBrowserMatches("org.example.NewBrowser", handlers: handlers),
+          "New locally registered browsers do not require a hardcoded allowlist")
+    check(!registeredBrowserMatches("com.apple.TextEdit", handlers: handlers), "An unrelated editor is rejected")
+    check(!registeredBrowserMatches(nil, handlers: handlers), "An unidentified foreground application is rejected")
+    check(!registeredBrowserMatches("", handlers: handlers), "An empty application identifier is rejected")
+    check(!registeredBrowserMatches("com.apple.Safari", handlers: []), "An empty registry cannot authorize Back")
     return (tests, failures)
 }

@@ -1,4 +1,4 @@
-"""Local voice worker: Argmax text, Bonsai target names, and numbered followups."""
+"""Local voice worker: Argmax text, explicit navigation, and Bonsai target names."""
 
 import base64
 import json
@@ -7,6 +7,7 @@ import sys
 from stt import STTConfig, WhisperKitEngine
 from .bonsai import BonsaiClient, normalize_candidates
 from .number_choice import parse_number_choice
+from .voice_commands import navigation_intent
 
 MAX_MESSAGE_CHARS = 2600000
 MAX_PCM_BYTES = 1600000
@@ -38,7 +39,7 @@ def decode_request(request):
     if len(audio) > (rate * 8 + 2048) * 2:
         raise ValueError("Recording exceeds the voice-targeting duration limit")
     targets = normalize_candidates(request.get("targets"))
-    if not targets:
+    if request["type"] == "choose" and not targets:
         raise ValueError("No screen text candidates were supplied")
     if request["type"] == "choose" and [target["label"] for target in targets] != [
             str(number) for number in range(1, len(targets) + 1)]:
@@ -91,6 +92,10 @@ def run(args):
             else:
                 result = engine.transcribe_bytes(audio, is_raw_pcm=True, sample_rate=rate)
             emit({"type": "transcript", "request_id": request_id, "text": result.text})
+            navigation = navigation_intent(result.text)
+            if navigation is not None:
+                emit({"type": "navigation", "request_id": request_id, "action": navigation})
+                continue
             if request["type"] == "choose":
                 choice = parse_number_choice(result.text, len(targets))
                 event = {"type": "selection", "request_id": request_id,

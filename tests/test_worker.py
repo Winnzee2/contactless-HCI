@@ -1,4 +1,4 @@
-"""The background voice pipeline must only return a validated target ID."""
+"""The voice worker returns validated targets or an explicit navigation intent."""
 
 from argparse import Namespace
 from contextlib import redirect_stdout
@@ -13,6 +13,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from control import worker
 from control.bonsai import SelectedTarget
+from control.voice_commands import navigation_intent
 
 
 class TestVoiceWorker(unittest.TestCase):
@@ -24,7 +25,7 @@ class TestVoiceWorker(unittest.TestCase):
     def test_invalid_request_never_enters_argmax(self):
         invalid = [dict(self.request, pcm_base64="invalid!"), dict(self.request, sample_rate=True),
                    dict(self.request, sample_rate=16000.5), dict(self.request, request_id=["bad"]),
-                   dict(self.request, type="click"), dict(self.request, targets=[]),
+                   dict(self.request, type="click"), dict(self.request, targets=[], type="choose"),
                    dict(self.request, extra="field")]
         for request in invalid:
             with self.subTest(request=request), patch.object(worker, "WhisperKitEngine") as engine, \
@@ -47,6 +48,63 @@ class TestVoiceWorker(unittest.TestCase):
         records = [json.loads(line) for line in output.getvalue().splitlines()]
         self.assertEqual([record["type"] for record in records], ["worker_ready", "transcript", "selection"])
         self.assertEqual(records[-1], {"type": "selection", "request_id": "a", "target_id": "tab", "reason": "matching label"})
+
+    def test_last_page_is_recognized_only_as_a_complete_phrase(self):
+        for transcript in ("last page", "Last Page.", "LAST PAGE!", "  last   page?  ", "ＬＡＳＴ ＰＡＧＥ。"):
+            with self.subTest(transcript=transcript):
+                self.assertEqual(navigation_intent(transcript), "back")
+        for transcript in ("", "Don't go to the last page", "never go to last page", "if I say last page",
+                           "the last page was helpful", "last page and click", "last page two",
+                           "last page; open settings", "last page\nclick", "back", "next page",
+                           '"last page"', None, 1, "last page" + " " * 4000):
+            with self.subTest(transcript=transcript):
+                self.assertIsNone(navigation_intent(transcript))
+
+    def test_last_page_bypasses_target_selection_in_both_request_modes(self):
+        requests = [self.request, dict(self.request, targets=[]),
+                    dict(self.request, type="choose", targets=[{"id": "left", "label": "1"},
+                                                               {"id": "right", "label": "2"}])]
+        for request in requests:
+            with self.subTest(request=request), patch.object(worker, "WhisperKitEngine") as engine, \
+                 patch.object(worker, "BonsaiClient") as model, \
+                 patch.object(worker.sys, "stdin", io.StringIO(json.dumps(request) + "\n")), \
+                 redirect_stdout(io.StringIO()) as output:
+                engine.return_value.transcribe_bytes.return_value = SimpleNamespace(text="Last page.")
+                self.assertEqual(worker.run(self.args), 0)
+                self.assertEqual(engine.return_value.transcribe_bytes.call_count, 1)
+                model.return_value.select_target.assert_not_called()
+            records = [json.loads(line) for line in output.getvalue().splitlines()]
+            self.assertEqual([record["type"] for record in records], ["worker_ready", "transcript", "navigation"])
+            self.assertEqual(records[-1], {"type": "navigation", "request_id": "a", "action": "back"})
+
+    def test_mentions_and_negations_do_not_emit_navigation(self):
+        for kind in ("search", "choose"):
+            request = dict(self.request, type=kind, targets=[{"id": "one", "label": "1"}])
+            for transcript in ("Do not go to last page", "If I say last page", "last page and click"):
+                with self.subTest(kind=kind, transcript=transcript), patch.object(worker, "WhisperKitEngine") as engine, \
+                     patch.object(worker, "BonsaiClient") as model, \
+                     patch.object(worker.sys, "stdin", io.StringIO(json.dumps(request) + "\n")), \
+                     redirect_stdout(io.StringIO()) as output:
+                    engine.return_value.transcribe_bytes.return_value = SimpleNamespace(text=transcript)
+                    model.return_value.select_target.return_value = SelectedTarget(None, "No match")
+                    self.assertEqual(worker.run(self.args), 0)
+                records = [json.loads(line) for line in output.getvalue().splitlines()]
+                self.assertEqual(records[-1]["type"], "selection")
+                self.assertIsNone(records[-1]["target_id"])
+
+    def test_empty_screen_still_transcribes_without_producing_a_target(self):
+        request = dict(self.request, targets=[])
+        with patch.object(worker, "WhisperKitEngine") as engine, \
+             patch.object(worker, "BonsaiClient") as model, \
+             patch.object(worker.sys, "stdin", io.StringIO(json.dumps(request) + "\n")), \
+             redirect_stdout(io.StringIO()) as output:
+            engine.return_value.transcribe_bytes.return_value = SimpleNamespace(text="Codex")
+            model.return_value.select_target.return_value = SelectedTarget(None, "empty transcript or candidate list")
+            self.assertEqual(worker.run(self.args), 0)
+            model.return_value.select_target.assert_called_once_with("Codex", [])
+        records = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual(records[-1]["type"], "selection")
+        self.assertIsNone(records[-1]["target_id"])
 
     def test_ambiguous_job_returns_only_original_candidate_ids(self):
         request = dict(self.request, targets=[{"id": "left", "label": "Save"}, {"id": "right", "label": "Save"}])

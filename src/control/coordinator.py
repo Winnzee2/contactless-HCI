@@ -57,8 +57,15 @@ class PendingMove:
     started_at: float
 
 
+@dataclass(frozen=True)
+class PendingNavigation:
+    request_id: str
+    generation: int
+    started_at: float
+
+
 NATIVE_EVENTS = frozenset({"ready", "state", "pointer", "speech_start", "speech_cancel", "speech_audio", "targets", "error", "action", "gesture_cancel", "choices_shown", "choices_cancel"})
-WORKER_EVENTS = frozenset({"transcript", "selection", "error"})
+WORKER_EVENTS = frozenset({"transcript", "selection", "navigation", "error"})
 
 
 class Coordinator:
@@ -77,6 +84,7 @@ class Coordinator:
         self.pointer_at = 0.0
         self.pending: Dict[str, Search] = {}
         self.pending_move: Optional[PendingMove] = None
+        self.pending_navigation: Optional[PendingNavigation] = None
         self.worker_request = None
         self.last_transcript = ""
         self.last_target = ""
@@ -97,6 +105,7 @@ class Coordinator:
         self.generation += 1
         self.pending.clear()
         self.pending_move = None
+        self.pending_navigation = None
         self.clear_choices()
 
     def clear_choices(self):
@@ -198,6 +207,9 @@ class Coordinator:
         if self.pending_move is not None and now - self.pending_move.started_at >= self.expiry:
             self.pending_move = None
             self.status("Pointer movement was not confirmed. Point and speak again.")
+        if self.pending_navigation is not None and now - self.pending_navigation.started_at >= self.expiry:
+            self.pending_navigation = None
+            self.status("Back navigation was not confirmed. Say “last page” again.")
         for key, search in list(self.pending.items()):
             if now - search.started_at > self.expiry:
                 self._discard_capture(search, "Search expired. Point at the area and speak again.")
@@ -240,6 +252,12 @@ class Coordinator:
                     self.pending_move = None
                     self.last_target = move.label
                     self.status(f'Target: {move.label}. Pinch middle / ring finger to click.')
+            elif event.get("source") == "voice" and event.get("action") == "back":
+                navigation = self.pending_navigation
+                if (navigation is not None and self.request_id(event) == navigation.request_id
+                        and navigation.generation == self.generation and self.armed):
+                    self.pending_navigation = None
+                    self.status("Back navigation sent.")
         elif kind == "gesture_cancel":
             if event.get("source") == "gesture":
                 # Native announces gesture intent before a held pinch or fist
@@ -269,6 +287,7 @@ class Coordinator:
             # A later search owns the status even if an earlier native move
             # finishes asynchronously while its screen check is in flight.
             self.pending_move = None
+            self.pending_navigation = None
             x, y = (choice.x, choice.y) if choice is not None else self.pointer
             region = choice.region if choice is not None else self._region(x, y)
             self.pending[key] = Search(key, self.generation, x, y, self.clock(), region,
@@ -336,9 +355,8 @@ class Coordinator:
                     return
                 search.audio = {"pcm_base64": encoded, "sample_rate": int(rate)}
             if search.targets is not None and search.audio is not None and not search.submitted:
-                if not search.targets:
-                    self._discard_capture(search, "No named controls or readable text found nearby. Point closer to a label.")
-                    return
+                # The exact "last page" command does not depend on a readable
+                # label. Empty captures still need local transcription.
                 choice = self._choice_for(search) if search.choice_id is not None else None
                 if search.choice_id is not None and choice is None:
                     self._discard_capture(search, "Numbered choices expired. Say the target name again.")
@@ -360,6 +378,34 @@ class Coordinator:
             if self.request_id(event) in self.pending:
                 self.last_transcript = str(event.get("text", ""))[:300]
                 self.status(f'Heard: {self.last_transcript} — locating target…')
+        elif kind == "navigation":
+            # Navigation is an explicit worker intent, never a model-supplied
+            # action or a native event masquerading as recognized speech.
+            if source != "worker":
+                return
+            if self.request_id(event) == self.worker_request:
+                self.worker_request = None
+            search = self.pending.pop(self.request_id(event), None)
+            if (search is None or not search.submitted or not self.armed or search.generation != self.generation
+                    or self.pointer is None or self.clock() - self.pointer_at > 0.6):
+                return
+            if event.get("action") != "back" or set(event) != {"type", "request_id", "action"}:
+                self.status("Unsupported voice navigation request.")
+                return
+            choice = self._choice_for(search) if search.choice_id is not None else None
+            if search.choice_id is not None and choice is None:
+                return
+            self.pending_move = None
+            self.clear_choices()
+            if choice is not None and self.clock() >= choice.expires_at:
+                self.status("Numbered choices expired. Say “last page” again.")
+                return
+            command = {"type": "voice_action", "action": "back", "request_id": search.request_id}
+            if search.choice_id is not None:
+                command["choice_id"] = search.choice_id
+            self.pending_navigation = PendingNavigation(search.request_id, self.generation, self.clock())
+            self.status("Going back to the previous page…")
+            self.send_native(command)
         elif kind == "selection":
             if self.request_id(event) == self.worker_request:
                 self.worker_request = None
@@ -387,6 +433,8 @@ class Coordinator:
             if target is None:
                 if search.choice_id is not None:
                     self._choice_status()
+                elif not search.targets:
+                    self.status("No named controls or readable text found nearby. Point closer to a label.")
                 else:
                     self.status("No confident match. Say the visible label again.")
                 return
@@ -406,6 +454,8 @@ class Coordinator:
             key = self.request_id(event)
             if self.pending_move is not None and (key is None or key == self.pending_move.request_id):
                 self.pending_move = None
+            if self.pending_navigation is not None and (key is None or key == self.pending_navigation.request_id):
+                self.pending_navigation = None
             if key:
                 search = self.pending.pop(key, None)
                 if search is not None and search.choice_id is not None:

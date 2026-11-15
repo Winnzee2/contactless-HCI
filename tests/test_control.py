@@ -171,7 +171,7 @@ class TestCoordinator(unittest.TestCase):
         self.coordinator.handle({"type": "targets", "request_id": "a", "targets": targets})
         self.assertEqual(self.coordinator.pending["a"].targets, [self.target])
 
-    def test_cancel_and_empty_ocr_do_not_queue_work(self):
+    def test_cancel_does_not_queue_work_but_empty_capture_can_transcribe_navigation(self):
         self.begin()
         self.coordinator.handle({"type": "speech_cancel", "request_id": "a"})
         self.coordinator.handle({"type": "speech_audio", "request_id": "a", "pcm_base64": "AAA=", "sample_rate": 16000})
@@ -179,7 +179,111 @@ class TestCoordinator(unittest.TestCase):
         self.begin()
         self.coordinator.handle({"type": "targets", "request_id": "a", "targets": []})
         self.coordinator.handle({"type": "speech_audio", "request_id": "a", "pcm_base64": "AAA=", "sample_rate": 16000})
-        self.assertEqual(self.worker, [])
+        self.assertEqual(len(self.worker), 1)
+        self.assertEqual(self.worker[0]["targets"], [])
+        self.coordinator.handle({"type": "navigation", "request_id": "a", "action": "back"}, source="worker")
+        self.assertEqual([event for event in self.native if event["type"] == "voice_action"],
+                         [{"type": "voice_action", "action": "back", "request_id": "a"}])
+
+    def test_empty_capture_without_navigation_remains_a_noop(self):
+        self.begin()
+        self.coordinator.handle({"type": "targets", "request_id": "a", "targets": []}, source="native")
+        self.coordinator.handle({"type": "speech_audio", "request_id": "a", "pcm_base64": "AAA=", "sample_rate": 16000}, source="native")
+        self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": None}, source="worker")
+        self.assertFalse(any(event["type"] == "voice_action" for event in self.native))
+        self.assertIn("No named controls", self.native[-1]["message"])
+
+    def test_back_navigation_waits_for_matching_native_ack_and_cannot_repeat(self):
+        self.submit()
+        event = {"type": "navigation", "request_id": "a", "action": "back"}
+        self.coordinator.handle(event, source="worker")
+        self.assertEqual(self.native[-1], {"type": "voice_action", "action": "back", "request_id": "a"})
+        self.assertEqual(self.coordinator.pending_navigation.request_id, "a")
+        self.assertIsNone(self.coordinator.pending_move)
+        self.assertEqual(self.coordinator.pending, {})
+        self.assertIsNone(self.coordinator.worker_request)
+        self.assertFalse(any(item.get("message") == "Back navigation sent." for item in self.native))
+        self.coordinator.handle(event, source="worker")
+        self.assertEqual(len([item for item in self.native if item["type"] == "voice_action"]), 1)
+        ack = {"type": "action", "source": "voice", "action": "back", "request_id": "a"}
+        for incorrect, source in ((dict(ack, request_id="old"), "native"),
+                                  (dict(ack, action="move_to"), "native"), (ack, "worker")):
+            self.coordinator.handle(incorrect, source=source)
+            self.assertIsNotNone(self.coordinator.pending_navigation)
+        self.coordinator.handle(ack, source="native")
+        self.assertIsNone(self.coordinator.pending_navigation)
+        self.assertEqual(self.native[-1]["message"], "Back navigation sent.")
+        self.assertEqual(self.coordinator.last_target, "")
+        count = len(self.native)
+        self.coordinator.handle(ack, source="native")
+        self.assertEqual(len(self.native), count)
+
+    def test_navigation_requires_worker_source_valid_action_and_submitted_request(self):
+        for source in ("native", None, "unknown"):
+            with self.subTest(source=source):
+                self.setUp()
+                self.submit()
+                self.coordinator.handle({"type": "navigation", "request_id": "a", "action": "back"}, source=source)
+                self.assertIn("a", self.coordinator.pending)
+                self.assertEqual(self.coordinator.worker_request, "a")
+                self.assertFalse(any(event["type"] == "voice_action" for event in self.native))
+        for fields in ({"action": "forward"}, {"action": "click"}, {"action": "back", "keys": ["cmd", "q"]}):
+            with self.subTest(fields=fields):
+                self.setUp()
+                self.submit()
+                self.coordinator.handle({"type": "navigation", "request_id": "a", **fields}, source="worker")
+                self.assertFalse(any(event["type"] == "voice_action" for event in self.native))
+                self.assertIsNone(self.coordinator.pending_navigation)
+        self.setUp()
+        self.begin()
+        self.coordinator.handle({"type": "navigation", "request_id": "a", "action": "back"}, source="worker")
+        self.assertFalse(any(event["type"] == "voice_action" for event in self.native))
+
+    def test_stale_navigation_is_cancelled_without_releasing_worker_backpressure_early(self):
+        for cancellation in ({"type": "state", "armed": False}, {"type": "pointer", "tracked": False},
+                             {"type": "gesture_cancel", "source": "gesture"}):
+            with self.subTest(cancellation=cancellation):
+                self.setUp()
+                self.submit()
+                self.coordinator.handle(cancellation, source="native")
+                self.coordinator.handle({"type": "state", "armed": True}, source="native")
+                self.point()
+                self.coordinator.handle({"type": "speech_start", "request_id": "b"}, source="native")
+                self.assertNotIn("b", self.coordinator.pending)
+                self.coordinator.handle({"type": "navigation", "request_id": "a", "action": "back"}, source="worker")
+                self.assertFalse(any(event["type"] == "voice_action" for event in self.native))
+                self.coordinator.handle({"type": "speech_start", "request_id": "b"}, source="native")
+                self.assertIn("b", self.coordinator.pending)
+
+    def test_navigation_confirmation_is_cleared_by_new_search_error_pause_and_timeout(self):
+        for end in ("new", "error", "pause", "timeout"):
+            with self.subTest(end=end):
+                self.setUp()
+                self.submit()
+                self.coordinator.handle({"type": "navigation", "request_id": "a", "action": "back"}, source="worker")
+                if end == "new":
+                    self.coordinator.handle({"type": "speech_start", "request_id": "b"}, source="native")
+                elif end == "error":
+                    self.coordinator.handle({"type": "error", "request_id": "a", "message": "No previous page"}, source="native")
+                elif end == "pause":
+                    self.coordinator.handle({"type": "state", "armed": False}, source="native")
+                else:
+                    for _ in range(80):
+                        self.now += .25
+                        self.point()
+                self.assertIsNone(self.coordinator.pending_navigation)
+                count = len(self.native)
+                self.coordinator.handle({"type": "action", "source": "voice", "action": "back", "request_id": "a"}, source="native")
+                self.assertEqual(len(self.native), count)
+
+    def test_expired_request_cannot_navigate_after_transcription(self):
+        self.submit()
+        for _ in range(84):
+            self.now += .25
+            self.point()
+        self.coordinator.handle({"type": "navigation", "request_id": "a", "action": "back"}, source="worker")
+        self.assertFalse(any(event["type"] == "voice_action" for event in self.native))
+        self.assertIsNone(self.coordinator.worker_request)
 
     def test_reacquiring_hand_does_not_revive_old_selection(self):
         self.submit()

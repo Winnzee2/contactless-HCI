@@ -70,6 +70,12 @@ Bonsai 只能返回给定候选中的 ID 或空结果。请求时把筛选后的
 
 OCR 识别的是可见文字，不能证明文字本身对应可点击控件。用户通过手势决定是否点击。
 
+## Explicit browser navigation
+
+After Argmax transcription, `control/voice_commands.py` recognizes the complete phrase `last page`, ignoring case, whitespace, and terminal punctuation. This emits a fixed `navigation/back` intent before target selection or numbered-choice parsing. Search requests with no screen candidates still reach transcription. Argmax itself remains a text-only transcription engine; Bonsai cannot generate navigation, keyboard shortcuts, or URLs.
+
+The coordinator binds navigation to a current recording and waits for the native acknowledgment. The native controller requires enabled control, fresh hand tracking, an unchanged foreground application/context, and a browser registered locally for HTTP or HTTPS. It sends one fixed Command-[ key pair directly to that browser process, clears stale target locks/choices, and reports that Back was sent. Unknown actions, arbitrary key data, stale recordings, and non-browser applications are rejected. The command needs no network; loading uncached remote page content still depends on the browser's connectivity.
+
 ## 离线边界
 
 - 摄像头、手部模型、屏幕 OCR 使用 macOS 自带的 AVFoundation / Vision / ScreenCaptureKit。

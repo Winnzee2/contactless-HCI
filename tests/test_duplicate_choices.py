@@ -212,6 +212,43 @@ class TestDuplicateChoices(unittest.TestCase):
         self.assertEqual(self.commands("voice_action"), [])
         self.assertEqual(self.commands("clear_choices")[-1]["choice_id"], "name")
 
+    def test_last_page_clears_choices_then_sends_only_bound_back_navigation(self):
+        self.create_choices()
+        self.choose()
+        self.worker_event("navigation", request_id="number", action="back")
+        commands = [command for command in self.native if command["type"] in ("clear_choices", "voice_action")]
+        self.assertEqual(commands, [
+            {"type": "clear_choices", "choice_id": "name"},
+            {"type": "voice_action", "action": "back", "request_id": "number", "choice_id": "name"}])
+        self.assertIsNone(self.coordinator.choices)
+        self.assertIsNone(self.coordinator.pending_move)
+        self.assertEqual(self.coordinator.pending_navigation.request_id, "number")
+        self.native_event("action", source="voice", action="back", request_id="number")
+        self.assertIsNone(self.coordinator.pending_navigation)
+        self.assertEqual(self.native[-1]["message"], "Back navigation sent.")
+
+    def test_expired_choices_cannot_navigate_from_late_number_transcription(self):
+        self.create_choices()
+        self.choose()
+        self.advance(15)
+        self.worker_event("navigation", request_id="number", action="back")
+        self.assertEqual(self.commands("voice_action"), [])
+        self.assertIsNone(self.coordinator.worker_request)
+
+    def test_choice_expiry_is_rechecked_after_clearing_for_navigation(self):
+        self.create_choices()
+        self.choose()
+        deadline = self.coordinator.choices.expires_at
+
+        def blocked_output(command):
+            self.native.append(command)
+            if command["type"] == "clear_choices":
+                self.now = deadline
+
+        self.coordinator.send_native = blocked_output
+        self.worker_event("navigation", request_id="number", action="back")
+        self.assertEqual(self.commands("voice_action"), [])
+
     def test_expiry_is_checked_again_immediately_before_sending_move(self):
         self.create_choices()
         self.choose()

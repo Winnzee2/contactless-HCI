@@ -84,11 +84,18 @@ struct VoiceAction {
     init?(_ json: [String: Any], bounds: CGRect) {
         guard json["type"] as? String == "voice_action",
               let action = json["action"] as? String,
-              ["move_to", "none"].contains(action),
+              ["move_to", "back", "none"].contains(action),
               let id = json["request_id"] as? String, !id.isEmpty, id.count <= 128 else { return nil }
         self.action = action
         self.requestID = id
         if action == "none" { self.point = nil; return }
+        if action == "back" {
+            // Navigation has a fixed meaning, never caller-supplied keys or URLs.
+            guard Set(json.keys).isSubset(of: ["type", "action", "request_id", "choice_id"]),
+                  json["choice_id"] == nil || json["choice_id"] is String else { return nil }
+            self.point = nil
+            return
+        }
         guard let x = json["x"] as? NSNumber, let y = json["y"] as? NSNumber,
               CFGetTypeID(x) != CFBooleanGetTypeID(), CFGetTypeID(y) != CFBooleanGetTypeID(),
               x.doubleValue.isFinite, y.doubleValue.isFinite,
@@ -589,7 +596,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         } else if !audioStarted {
             speechLabel.stringValue = audioStarting ? "Microphone is preparing locally." : "Microphone is not ready. Gesture control remains available."
         } else if armed {
-            speechLabel.stringValue = "Keep your hand visible, point near a label, then say its name. Voice moves the pointer; gestures click."
+            speechLabel.stringValue = "Keep your hand visible. Say a label to point, or say last page to go back in the browser. Gestures click."
         } else {
             speechLabel.stringValue = "Voice is paused. Enable pointer, show your hand, then say a visible label."
         }
@@ -776,6 +783,10 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         seenIDs.append(instruction.requestID)
         if seenIDs.count > 128 { seenIDs.removeFirst() }
         if instruction.action == "none" { return }
+        if instruction.action == "back" {
+            performVoiceBack(instruction, choiceID: json["choice_id"] as? String)
+            return
+        }
         guard let point = instruction.point else { return }
         guard let capture = currentCapture(instruction.requestID),
               capture.choiceID == json["choice_id"] as? String else { return }
@@ -812,6 +823,36 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         targetOverlay.show(point: point, label: label, protectedUntil: lockedAt + 3)
         emit(["type": "pointer", "x": point.x, "y": point.y, "tracked": true])
         emit(["type": "action", "action": "move_to", "source": "voice", "x": point.x, "y": point.y, "request_id": instruction.requestID])
+    }
+    func performVoiceBack(_ instruction: VoiceAction, choiceID: String?) {
+        func fail(_ message: String) {
+            emit(["type": "error", "request_id": instruction.requestID, "message": message])
+        }
+        guard armed, tracked, acceptsVoiceTarget, now() - lastHandTime <= 0.4, AXIsProcessTrusted(),
+              let capture = currentCapture(instruction.requestID), capture.choiceID == choiceID else {
+            fail("Browser context changed or hand control paused. Say last page again.")
+            return
+        }
+        guard let browser = NSWorkspace.shared.frontmostApplication,
+              browser.processIdentifier == capture.foregroundPID,
+              isBrowserApplication(bundleIdentifier: browser.bundleIdentifier) else {
+            fail("Last page works in the active web browser. Bring your browser to the front and try again.")
+            return
+        }
+        guard let events = makeBrowserBackEvents() else { fail("Could not create the browser Back shortcut."); return }
+        guard armed, tracked, acceptsVoiceTarget, now() - lastHandTime <= 0.4,
+              currentCapture(instruction.requestID) != nil,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == browser.processIdentifier else {
+            fail("Browser context changed before navigation. Say last page again.")
+            return
+        }
+        targetLock.clear(); targetOverlay.hide(); duplicateOverlay.hide()
+        invalidateTargetContext()
+        lastActionTime = now()
+        // Deliver only to the browser bound to this recording. A focus change
+        // cannot redirect the shortcut to an editor or another application.
+        for event in events { event.postToPid(browser.processIdentifier) }
+        emit(["type": "action", "source": "voice", "action": "back", "request_id": instruction.requestID])
     }
     func showChoices(_ json: [String: Any]) {
         guard let id = json["choice_id"] as? String, !id.isEmpty, id.count <= 100 else { return }
@@ -894,13 +935,8 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 fail("Screen context changed. Point and speak again."); return
             }
             if let choiceID = choiceID { _ = duplicateOverlay.resume(choiceID: choiceID) }
-            if targets.isEmpty && !CGPreflightScreenCaptureAccess() {
-                DispatchQueue.main.async {
-                    _ = CGRequestScreenCaptureAccess()
-                    fail("No named controls found here. Allow Screen Recording to also search visible text, then restart.")
-                }
-                return
-            }
+            // Empty captures still carry foreground context: an explicit Back
+            // request must work even on a blank page or without readable text.
             if targetCaptures.count >= 16 { targetCaptures.removeAll() }
             targetCaptures[id] = TargetCapture(targets: targets, region: region,
                                               pointer: CGPoint(x: x.doubleValue, y: y.doubleValue), foregroundPID: foregroundPID,
@@ -988,6 +1024,14 @@ func selfTest() -> Bool {
     for forbiddenAction in ["click", "double_click", "right_click", "mission_control"] {
         json["action"] = forbiddenAction
         check(VoiceAction(json, bounds: bounds) == nil, "gesture actions cannot be supplied by voice")
+    }
+    let back: [String: Any] = ["type": "voice_action", "action": "back", "request_id": "back-test"]
+    check(VoiceAction(back, bounds: bounds)?.action == "back", "Explicit browser Back requires no target coordinates")
+    check(VoiceAction(back, bounds: bounds)?.point == nil, "Browser Back does not position or click the mouse")
+    for field in ["x", "y", "url", "key_code", "modifiers"] {
+        var invalidBack = back
+        invalidBack[field] = 1
+        check(VoiceAction(invalidBack, bounds: bounds) == nil, "Browser Back cannot accept arbitrary coordinates URLs or keys")
     }
     let nativeRect = CGRect(x: 200, y: 300, width: 80, height: 40)
     let nativePoint = CGPoint(x: nativeRect.midX, y: nativeRect.midY)

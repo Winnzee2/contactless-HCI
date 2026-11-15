@@ -1,6 +1,16 @@
 # 离线验证记录与复现
 
-The [cross-application verification](CROSS_APP.md) includes successful Wi-Fi-off target-selection checks in Finder, TextEdit, and Safari. After the numbered-movement correction, the suite passes **135 Python tests and 186 native checks**. Earlier human-input and component records retain their original scope; they do not substitute for physical acceptance of the new gestures or numbered-choice flow.
+The [cross-application verification](CROSS_APP.md) includes successful Wi-Fi-off target-selection checks in Finder, TextEdit, and Safari. After adding explicit browser Back navigation, the suite passes **148 Python tests and 203 native checks**. Earlier human-input and component records retain their original scope; they do not substitute for physical acceptance of the new gestures or voice flows.
+
+## “Last Page” Browser Navigation
+
+On November 14, 2026 (Eastern time), the exact phrase “last page” was added as an application-level Back command after Argmax transcription. Tests confirm that “Do not go to the last page” and “The last page was helpful” do not trigger navigation. Both normal search and numbered-choice requests recognize the explicit command; empty screen candidates do not prevent transcription.
+
+A combined test opened two local HTML pages in the same Safari tab, then sent locally synthesized “Last page” audio through real Argmax, the real coordinator, and the production native controller. With **Wi-Fi Off**, the native controller sent its fixed Back shortcut to Safari and the screen capture verified that the first page was visible again. The test used simulated hand freshness and synthesized audio, with no camera or microphone capture. A setup click followed a local fixture link; the voice command itself sent only the browser keyboard shortcut. The original cursor position and Wi-Fi state were restored. An initial attempt correctly rejected a changed/stale context; subsequent tests passed with the bound browser context intact.
+
+All **148 Python tests**, including real Argmax integration, and **203 native checks** passed with Wi-Fi off. Checks cover exact-phrase routing, negative speech, empty captures, numbered-choice cancellation, stale requests, acknowledgment handling, fixed keyboard events, and browser registry gating. Safari is accepted by the local handler registry and TextEdit is rejected. This verifies Safari's actual history navigation; custom browser shortcuts or implementations may differ.
+
+Evidence is local in ignored `.build/verification/last-page/`: `worker-replay.json`, `pipeline.json`, `last-events.json`, `python-tests.txt`, `native-tests.json`, and `wifi.json`. No browser history, screenshots, recordings, or test pages are added to Git.
 
 ## Numbered Cursor Movement Correction
 
