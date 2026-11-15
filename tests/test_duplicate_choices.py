@@ -132,7 +132,7 @@ class TestDuplicateChoices(unittest.TestCase):
         self.assertEqual([command["type"] for command in commands], ["clear_choices", "voice_action"])
         self.assertEqual(commands[0]["choice_id"], "name")
         self.assertEqual(commands[1]["choice_id"], "name")
-        self.assertEqual((commands[1]["x"], commands[1]["y"]), (653, 202))
+        self.assertEqual((commands[1]["x"], commands[1]["y"]), (650, 200))
         self.assertEqual(commands[1]["action"], "move_to")
         self.assertEqual(commands[1]["label"], "Open")
         self.assertIsNone(self.coordinator.choices)
@@ -142,7 +142,7 @@ class TestDuplicateChoices(unittest.TestCase):
         self.assertEqual(self.coordinator.last_target, "Open")
         self.assertIsNone(self.coordinator.pending_move)
 
-    def test_changed_missing_or_ambiguous_targets_cancel_number_selection(self):
+    def test_changed_missing_or_ambiguous_elements_preserve_positions(self):
         variants = [
             self.targets[:-1],
             [dict(target, x=target["x"] + 30) for target in self.targets],
@@ -155,18 +155,17 @@ class TestDuplicateChoices(unittest.TestCase):
                 self.setUp()
                 self.create_choices()
                 self.choose(targets=fresh)
-                self.assertIsNone(self.coordinator.choices)
-                self.assertEqual(len(self.worker), 1)
-                self.assertEqual(self.commands("voice_action"), [])
-                self.assertEqual(self.commands("clear_choices")[-1]["choice_id"], "name")
+                self.assertIsNotNone(self.coordinator.choices)
+                self.assertEqual(self.worker[-1]["type"], "choose")
+                self.worker_event("selection", request_id="number", target_id="right")
+                self.assertEqual((self.commands("voice_action")[-1]["x"], self.commands("voice_action")[-1]["y"]), (650, 200))
 
-    def test_two_original_options_cannot_reuse_one_fresh_target(self):
+    def test_distinct_original_positions_survive_merged_elements(self):
         self.targets = [dict(self.targets[0], id="a", x=350), dict(self.targets[0], id="b", x=360)]
         self.create_choices()
         self.choose(targets=[dict(self.targets[0], id="new", x=355)])
-        self.assertIsNone(self.coordinator.choices)
-        self.assertEqual(len(self.worker), 1)
-        self.assertEqual(self.commands("voice_action"), [])
+        self.assertIsNotNone(self.coordinator.choices)
+        self.assertEqual(len(self.worker[-1]["targets"]), 2)
 
     def test_revalidation_normalizes_chinese_spaces_punctuation_and_unicode(self):
         self.targets = [dict(target, label="项 目 Ａ＆Ｂ") for target in self.targets]
@@ -293,8 +292,6 @@ class TestDuplicateChoices(unittest.TestCase):
     def test_context_cancellation_and_reacquisition_never_revive_old_number(self):
         events = [
             {"type": "state", "armed": False},
-            {"type": "pointer", "tracked": False},
-            {"type": "gesture_cancel", "source": "gesture"},
             {"type": "action", "source": "gesture", "action": "mission_control"},
             {"type": "choices_cancel", "choice_id": "name"},
         ]
@@ -309,6 +306,20 @@ class TestDuplicateChoices(unittest.TestCase):
                 self.worker_event("selection", request_id="number", target_id="right")
                 self.assertIsNone(self.coordinator.choices)
                 self.assertEqual(self.commands("voice_action"), [])
+
+    def test_hand_loss_and_pinch_intent_preserve_choices_and_deadline(self):
+        for event in ({"type": "pointer", "tracked": False},
+                      {"type": "gesture_cancel", "source": "gesture"}):
+            with self.subTest(event=event):
+                self.setUp()
+                self.create_choices()
+                deadline = self.coordinator.choices.expires_at
+                self.coordinator.handle(event, source="native")
+                self.assertEqual(self.coordinator.choices.expires_at, deadline)
+                self.point()
+                self.choose(targets=[])
+                self.worker_event("selection", request_id="number", target_id="right")
+                self.assertEqual(self.commands("voice_action")[-1]["x"], 650)
 
     def test_stale_cancel_and_ack_cannot_change_new_choices(self):
         self.create_choices()
@@ -335,7 +346,7 @@ class TestDuplicateChoices(unittest.TestCase):
         self.worker_event("selection", request_id="new-number", target_id="left")
         self.assertEqual(self.commands("voice_action")[0]["choice_id"], "new")
 
-    def test_changed_region_and_native_capture_error_clear_choices(self):
+    def test_cancelled_followup_keeps_prompt_for_retry(self):
         for invalid in (
                 {"type": "targets", "targets": [], "region": {"x": 0, "y": 0, "width": 720, "height": 420}},
                 {"type": "error", "message": "Screen capture failed"},
@@ -345,7 +356,7 @@ class TestDuplicateChoices(unittest.TestCase):
                 self.create_choices()
                 self.native_event("speech_start", request_id="number")
                 self.coordinator.handle({**invalid, "request_id": "number"}, source="native")
-                self.assertIsNone(self.coordinator.choices)
+                self.assertIsNotNone(self.coordinator.choices)
                 self.assertEqual(self.commands("voice_action"), [])
 
     def test_duplicate_capture_cannot_replace_submitted_number_coordinates(self):

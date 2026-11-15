@@ -62,7 +62,7 @@ struct TargetLock {
     mutating func hold(_ point: CGPoint, anchor: CGPoint, time: Double) {
         target = point
         self.anchor = anchor
-        protectedUntil = time + 3
+        protectedUntil = time + 15
     }
     mutating func clear() {
         target = nil
@@ -72,7 +72,7 @@ struct TargetLock {
     mutating func resolve(hand: CGPoint, time: Double) -> CGPoint? {
         // Allow time to form a click gesture without the index finger pulling
         // the pointer away from the voice-selected target.
-        if time >= protectedUntil, let anchor = anchor, distance(hand, anchor) > 0.07 { clear() }
+        if time >= protectedUntil { clear() }
         return target
     }
 }
@@ -410,6 +410,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             guard let self = self else { return }
             if now() - self.lastHandTime > 0.4 { self.loseHand() }
             if self.armed && !AXIsProcessTrusted() { self.setArmed(false) }
+            if self.targetLock.resolve(hand: self.lastRawPoint ?? .zero, time: now()) == nil { self.targetOverlay.hide() }
             self.targetOverlay.refresh(now: now())
         }
         requestCamera()
@@ -453,7 +454,9 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let contextEvents: NSEvent.EventTypeMask = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: contextEvents) { [weak self] event in
             guard let self = self else { return event }
-            self.invalidateTargetContext()
+            let clicked = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type)
+            self.invalidateTargetContext(preservingPrompt: !clicked)
+            if clicked { self.targetLock.clear(); self.targetOverlay.hide() }
             guard event.type == .keyDown else { return event }
             if event.isARepeat { return event }
             if event.keyCode == 53 { self.setArmed(false); return nil }
@@ -462,16 +465,19 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             return event
         }
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: contextEvents) { [weak self] event in
-            self?.invalidateTargetContext()
+            let clicked = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type)
+            self?.invalidateTargetContext(preservingPrompt: !clicked)
+            if clicked { self?.targetLock.clear(); self?.targetOverlay.hide() }
             if event.type == .keyDown && event.keyCode == 53 { self?.setArmed(false) }
         }
         for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
             contextObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.invalidateTargetContext()
+                self?.invalidateTargetContext(preservingPrompt: true)
             })
         }
     }
-    func invalidateTargetContext() {
+    func invalidateTargetContext(preservingPrompt: Bool = false) {
+        if preservingPrompt && duplicateOverlay.choiceID != nil { return }
         contextGeneration += 1
         targetCaptures.removeAll()
         latestCaptureID = nil
@@ -483,7 +489,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     private func currentCapture(_ id: String) -> TargetCapture? {
         guard id == latestCaptureID, let capture = targetCaptures[id], capture.generation == contextGeneration,
               now() - capture.capturedAt <= 20,
-              capture.foregroundPID == NSWorkspace.shared.frontmostApplication?.processIdentifier,
+              (capture.choiceID != nil || capture.foregroundPID == NSWorkspace.shared.frontmostApplication?.processIdentifier),
               capture.choiceDeadline.map({ now() < $0 }) ?? true else { return nil }
         return capture
     }
@@ -612,7 +618,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         gestureBusy = busy
         mic.setArmed(armed && tracked && !busy)
         if busy {
-            invalidateTargetContext()
+            invalidateTargetContext(preservingPrompt: true)
             emit(["type": "gesture_cancel", "source": "gesture"])
         }
     }
@@ -688,7 +694,6 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             if scrollPinch.active || wasScrolling {
                 setGestureBusy(scrollPinch.active)
                 leftPinch.reset(); rightPinch.reset(); fistOpen.reset(); pinchPoint = nil
-                targetLock.clear(); targetOverlay.hide()
                 if pointer == nil { pointer = CGEvent(source: nil)?.location ?? target }
                 if let point = pointer {
                     publishPointer(point, time: time)
@@ -708,7 +713,6 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 missionControlTransition.blocksInput(time: now()) {
                 setGestureBusy(true)
                 scrollPinch.reset(); leftPinch.reset(); rightPinch.reset(); pinchApproach.reset(); pinchPoint = nil
-                targetLock.clear(); targetOverlay.hide()
                 // Folding the index finger must not drag the pointer across the desktop.
                 if pointer == nil { pointer = CGEvent(source: nil)?.location ?? target }
                 if let point = pointer { publishPointer(point, time: time) }
@@ -751,11 +755,10 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         scrollPinch.reset(); leftPinch.reset(); rightPinch.reset()
         fistOpen.reset(); pinchApproach.reset(); pinchPoint = nil; gestureBusy = false
         missionControlTransition.cancel()
-        targetLock.clear(); lastRawPoint = nil
-        targetOverlay.hide()
+        lastRawPoint = nil
         pointer = nil
         if tracked {
-            invalidateTargetContext()
+            invalidateTargetContext(preservingPrompt: true)
             emit(["type": "pointer", "tracked": false, "x": 0, "y": 0])
             tracked = false
         }
@@ -832,24 +835,13 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
               capture.choiceID == json["choice_id"] as? String else { return }
         if capture.choiceID != nil {
             guard let label = json["label"] as? String,
-                  let original = capturedVoiceTarget(capture.targets, label: label, point: point) else {
+                  capturedVoiceTarget(capture.targets, label: label, point: point) != nil else {
                 emit(["type": "error", "request_id": instruction.requestID,
                       "message": "Selected numbered target no longer matches its capture. Say the target name again."])
                 return
             }
-            // A page can rearrange itself without a mouse/key event while the
-            // number is transcribed. Confirm the target again just before moving.
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 50_000_000)
-                let fresh = await discoverTargets(region: capture.region, pointer: capture.pointer)
-                guard currentCapture(instruction.requestID) != nil,
-                      let confirmed = revalidatedScreenTarget(original, in: fresh) else {
-                    emit(["type": "error", "request_id": instruction.requestID,
-                          "message": "Target changed or choices expired. Say the target name again."])
-                    return
-                }
-                performVoiceMove(instruction, point: confirmed, label: json["label"] as? String ?? "Selected target")
-            }
+            performVoiceMove(instruction, point: point,
+                             label: json["label"] as? String ?? "Selected target")
             return
         }
         performVoiceMove(instruction, point: point, label: json["label"] as? String ?? "Selected target")
@@ -860,7 +852,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let lockedAt = now()
         targetLock.hold(point, anchor: anchor, time: lockedAt); pointer = point
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
-        targetOverlay.show(point: point, label: label, protectedUntil: lockedAt + 3)
+        targetOverlay.show(point: point, label: label, protectedUntil: lockedAt + 15)
         emit(["type": "pointer", "x": point.x, "y": point.y, "tracked": true])
         emit(["type": "action", "action": "move_to", "source": "voice", "x": point.x, "y": point.y, "request_id": instruction.requestID])
     }
@@ -972,6 +964,17 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 fail("Numbered choices expired. Say the target name again."); return
             }
         }
+        if let choiceID = choiceID, let original = targetCaptures[choiceID] {
+            latestCaptureID = id
+            targetCaptures[id] = TargetCapture(targets: original.targets, region: original.region,
+                pointer: original.pointer, foregroundPID: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                generation: contextGeneration, capturedAt: now(), choiceID: choiceID,
+                choiceDeadline: duplicateOverlay.expiresAt)
+            emit(["type": "targets", "request_id": id, "targets": original.targets,
+                  "region": ["x": original.region.minX, "y": original.region.minY,
+                             "width": original.region.width, "height": original.region.height]])
+            return
+        }
         let choiceDeadline = choiceID == nil ? nil : duplicateOverlay.expiresAt
         latestCaptureID = id
         let generation = contextGeneration
@@ -1060,7 +1063,8 @@ func selfTest() -> Bool {
     targetLock.hold(voiceTarget, anchor: handAnchor, time: 10)
     check(targetLock.resolve(hand: movedHand, time: 12.999) == voiceTarget, "voice target ignores finger movement for three seconds")
     check(targetLock.resolve(hand: handAnchor, time: 13) == voiceTarget, "stable hand keeps target after protection expires")
-    check(targetLock.resolve(hand: movedHand, time: 13.001) == nil, "deliberate movement releases target after three seconds")
+    check(targetLock.resolve(hand: movedHand, time: 13.001) == voiceTarget, "hand movement preserves positional target until timeout")
+    check(targetLock.resolve(hand: handAnchor, time: 25) == nil, "positional focus expires after fifteen seconds")
     targetLock.hold(voiceTarget, anchor: handAnchor, time: 20)
     targetLock.clear()
     check(targetLock.resolve(hand: handAnchor, time: 20.1) == nil, "click pause or hand loss can clear a protected target immediately")

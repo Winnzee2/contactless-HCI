@@ -111,13 +111,16 @@ class Coordinator:
     def number(value):
         return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
-    def invalidate(self):
+    def invalidate(self, preserve_choices=False):
         """Invalidate results permanently, including after hand reacquisition."""
         self.generation += 1
         self.pending.clear()
         self.pending_move = None
         self.pending_navigation = None
-        self.clear_choices()
+        if preserve_choices and self.choices is not None:
+            self.choices = replace(self.choices, generation=self.generation)
+        else:
+            self.clear_choices()
 
     def clear_choices(self):
         """Hide one exact session; delayed clears cannot hide newer choices."""
@@ -165,26 +168,14 @@ class Coordinator:
         choice = self._choice_for(search)
         if choice is None:
             return None
-        result, used = [], set()
-        for option in choice.options:
-            matches = [target for target in targets if _name(target["label"]) == _name(option.label)
-                       and abs(target["x"] - option.x) <= 12
-                       and abs(target["y"] - option.y) <= 12
-                       and abs(target["width"] - option.width) <= max(4, min(12, option.width * .15))
-                       and abs(target["height"] - option.height) <= max(4, min(12, option.height * .15))]
-            if len(matches) != 1 or matches[0]["id"] in used:
-                return None
-            fresh = matches[0]
-            used.add(fresh["id"])
-            # Discovery IDs may change between captures; displayed numbers cannot.
-            result.append({"id": option.id, "label": option.label,
-                           **{key: fresh[key] for key in ("x", "y", "width", "height")}})
-        return result
+        # Numbers describe the displayed positions, not live element identities.
+        return [{"id": option.id, "label": option.label, "x": option.x, "y": option.y,
+                 "width": option.width, "height": option.height} for option in choice.options]
 
     def _discard_capture(self, search, message):
         self.pending.pop(search.request_id, None)
         if search.choice_id is not None:
-            self.invalidate()
+            self.invalidate(preserve_choices=True)
         self.status(message)
 
     def set_voice_ready(self, ready):
@@ -208,7 +199,7 @@ class Coordinator:
         now = self.clock()
         if self.pointer is not None and now - self.pointer_at > 0.6:
             self.pointer = None
-            self.invalidate()
+            self.invalidate(preserve_choices=True)
         if self.choices is not None and now >= self.choices.expires_at:
             self.invalidate()
             self.status("Numbered choices expired. Say the target name again.")
@@ -248,7 +239,7 @@ class Coordinator:
                 self.pointer_at = self.clock()
             else:
                 self.pointer = None
-                self.invalidate()
+                self.invalidate(preserve_choices=True)
         elif kind == "action":
             if event.get("source") == "gesture":
                 # Clicks and Mission Control can change the visible context
@@ -272,7 +263,7 @@ class Coordinator:
             if event.get("source") == "gesture":
                 # Native announces gesture intent before a held pinch or fist
                 # completes, so an old model result cannot interrupt it.
-                self.invalidate()
+                self.invalidate(preserve_choices=True)
         elif kind == "choices_shown":
             if self.choices is not None and event.get("choice_id") == self.choices.choice_id:
                 self.choices = replace(self.choices, acknowledged=True)
@@ -313,7 +304,7 @@ class Coordinator:
         elif kind == "speech_cancel":
             search = self.pending.pop(self.request_id(event), None)
             if search is not None and search.choice_id is not None:
-                self.invalidate()
+                self.invalidate(preserve_choices=True)
         elif kind in ("targets", "speech_audio"):
             search = self.pending.get(self.request_id(event))
             if search is None or search.generation != self.generation:
@@ -471,7 +462,7 @@ class Coordinator:
             if key:
                 search = self.pending.pop(key, None)
                 if search is not None and search.choice_id is not None:
-                    self.invalidate()
+                    self.invalidate(preserve_choices=True)
                 if key == self.worker_request:
                     self.worker_request = None
             self.status(str(event.get("message", "Local processing failed.")), important=True)

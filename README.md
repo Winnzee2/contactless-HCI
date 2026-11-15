@@ -2,11 +2,11 @@
 
 On an Apple Silicon Mac, move the pointer with your index finger, pinch to click, and name a nearby visible control to target it across applications. Camera recognition, speech transcription, accessibility inspection, screen text recognition, and Bonsai inference all run locally. No browser extension or integration with a particular website is required.
 
-**Voice positions the pointer, navigates back, or switches browser tabs; it never clicks.** For example, point near a visible label and say “Codex.” The pointer moves to the recognized target and locks in place. For the first **3 seconds**, finger movement cannot pull it away, giving you time to pinch and release your thumb and middle finger for a left click, or hold the pinch for a double-click.
+**Voice positions the pointer, navigates back, or switches browser tabs; it never clicks.** For example, point near a visible label and say “Codex.” The pointer moves to the recognized target and locks in place. For the first **15 seconds**, finger movement cannot pull it away, giving you time to pinch and release your thumb and middle finger for a left click, or hold the pinch for a double-click.
 
-A click-through highlight shows the selected target and the remaining hold time. After the countdown, it shows “Pinch to click” while the target remains locked. It disappears when you click, release the lock, pause, lose hand tracking, or begin another voice search.
+A click-through highlight shows the selected target and the remaining hold time. The highlight and lock expire after the countdown. Clicking, pausing, or beginning another voice search also dismisses the highlight.
 
-If several nearby targets match the name you say, the app circles **every matching target** and labels them **1, 2, 3, …**, ordered from top to bottom and left to right. Keep your hand visible and say a number, such as “two,” “number two,” or “第二个.” The pointer moves to that target after its position is checked again, then uses the same three-second hold. **Choosing a number never clicks.** Say “cancel” to dismiss the circles; they expire after **15 seconds**.
+If several nearby targets match the name you say, the app circles **every matching target** and labels them **1, 2, 3, …**, ordered from top to bottom and left to right. Keep your hand visible and say a number, such as “two,” “number two,” or “第二个.” The pointer moves to that target at the original numbered position, then uses the same 15-second hold. **Choosing a number never clicks.** Say “cancel” to dismiss the circles; they expire after **15 seconds**.
 
 ## Launch
 
@@ -46,10 +46,10 @@ You may need to quit and restart after changing permissions. The app starts **PA
 | Name a nearby control, such as “Codex” or “open Reports” | Argmax transcription → accessibility labels and local OCR → Bonsai selection → pointer positioning; no click |
 | Say **“last page”** | Go back to the previous page in the active browser or the previously visited folder in Finder, without moving or clicking the pointer |
 | Say **“tab left”** or **“tab right”** | Switch to the adjacent tab on that side in the active browser window, even when tab names are truncated |
-| Say “two,” “number two,” or “第二个” while numbered circles are visible | Select target 2, check its current position, and move the pointer there; no click |
+| Say “two,” “number two,” or “第二个” while numbered circles are visible | Select position 2 and move the pointer there; no click |
 | Say “cancel” while numbered circles are visible | Dismiss the choices |
-| Move your finger during the first 3 seconds after targeting | Keep the pointer on the target while you prepare a pinch |
-| Move your hand deliberately after 3 seconds | Release the lock; a steady hand keeps the target locked |
+| Move your finger during the 15 seconds after targeting | Keep the pointer on the target while you prepare a pinch |
+| Wait 15 seconds after targeting | Release the pointer lock |
 | Space, while the control window is active | Enable or pause |
 | Escape | Pause control |
 | Q, while the control window is active, or close the window | Quit |
@@ -66,7 +66,7 @@ Pointer movement and pinch clicks resume after the **0.75-second opening transit
 
 Pausing or losing reliable hand tracking cancels an unfinished gesture and clears the target lock immediately, including during the 3-second protection period. Open your fingers before starting another pinch after a pause or tracking loss.
 
-Numbered choices keep their original numbers and search area while you move your hand. A pause, tracking loss, pinch or fist gesture, mouse click, scroll, keypress, application switch, or desktop Space change clears them. If the targets move or disappear, say the target name again. Invalid or out-of-range numbers do not move the pointer or restart the 15-second countdown.
+Numbered choices keep their original numbers and search area while you move your hand. A click, pause, explicit cancel, navigation action, or timeout clears them. Element changes, scrolling, typing, and brief tracking loss preserve the original numbered positions. Invalid or out-of-range numbers do not move the pointer or restart the 15-second countdown.
 
 For local practice, open the [offline target board](assets/demo/target-board.html) or the [duplicate-target practice page](assets/demo/duplicate-targets.html). On the duplicate page, point near the middle button, say “Reports,” wait for the circles, then say a number and pinch to click. Both pages work without a network connection; the same discovery and selection code is used in other applications.
 
@@ -123,7 +123,7 @@ The current build also passed **five actual target-selection checks with Wi-Fi o
 - The scanner checks visibility, keeps bounded traversal times, and combines accessibility and OCR readings of the same control. The demo board is an optional test fixture; no app names or website selectors are required for discovery.
 - The control layer narrows the candidate list to visible labels supported by the spoken name, preserving their original labels and IDs and every matching duplicate. This prevents unrelated screen instructions from distracting Bonsai, including on the offline target board. The filtering uses generic English and Chinese name matching, not a list of supported websites or target names.
 - Bonsai must still return a valid candidate ID or a valid null response. It never generates coordinates. A unique target requires a valid model selection; multiple matches open numbered circles and leave the pointer in place until you say a valid number. Argmax only transcribes the follow-up; a local number parser resolves the displayed number.
-- Numbered choices remain bound to the original screen area and expire after 15 seconds. The app checks fresh target labels and bounds before number selection and checks the selected target again after transcription, immediately before moving. Missing text, invalid model output, changed targets, or expired results do not trigger targeting.
+- Numbered choices remain bound to the original screen area and expire after 15 seconds. Number selection uses the saved positions, even if the original labels change or disappear. Invalid model output and expired results do not trigger targeting.
 - Use the displayed label or accessible control name. Unlabeled icons, inaccessible custom canvases, hidden content, and protected screens cannot be targeted reliably by voice. Ordinary hand pointer movement and pinch clicks remain available.
 - The prototype targets the primary display. Occluded windows, small text, lighting, hand posture, and noise can affect recognition.
 - See the [cross-application checks](docs/CROSS_APP.md) for real-app verification and a reusable diagnostic. Compatibility depends on what each application exposes; a finite test set cannot establish support for every control in every app.
@@ -170,3 +170,5 @@ Dependencies: [Argmax WhisperKit](https://github.com/argmaxinc/argmax-oss-swift)
 Voice recognition searches the entire primary screen. Pointer sensitivity is increased, with stronger smoothing to reduce jitter. As thumb approaches the middle, ring, or pinky finger, the cursor freezes before contact; opening the fingers releases it.
 
 Pinch contact uses multiple palm axes to tolerate hand rotation and foreshortening. Middle, ring, and pinky contacts use a more forgiving threshold and a shorter release distance. An active click keeps ownership when adjacent fingers move close; an obscured unrelated fingertip no longer drops all hand tracking. Keep the thumb, intended fingertip, and enough palm landmarks visible; fully occluded contacts cannot be determined by the camera.
+
+Target prompts now use fixed screen positions. Numbered circles keep their original positions for their 15-second lifetime even when page elements change, move, or disappear. Saying a number moves to that displayed position without clicking. A selected focus point stays locked for 15 seconds. Hand motion, brief tracking loss, and starting a pinch do not dismiss an existing prompt; a click, timeout, explicit cancellation, pause, or a new navigation action clears it.
