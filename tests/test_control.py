@@ -48,6 +48,90 @@ class TestCoordinator(unittest.TestCase):
         self.assertEqual(moves[0]["action"], "move_to")
         self.assertEqual((moves[0]["x"], moves[0]["y"]), (550, 300))
 
+    def test_target_status_waits_for_native_movement_confirmation(self):
+        self.submit()
+        self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"}, source="worker")
+        self.assertEqual(self.coordinator.last_target, "")
+        self.assertEqual(self.coordinator.pending_move.request_id, "a")
+        statuses = [event["message"] for event in self.native if event["type"] == "status"]
+        self.assertEqual(statuses[-1], "Moving to Codex…")
+        self.assertFalse(any(message.startswith("Target:") for message in statuses))
+        ack = {"type": "action", "source": "voice", "action": "move_to", "request_id": "a"}
+        self.coordinator.handle(ack, source="native")
+        self.assertEqual(self.coordinator.last_target, "Codex")
+        self.assertIsNone(self.coordinator.pending_move)
+        self.assertEqual(self.native[-1]["message"], "Target: Codex. Pinch middle / ring finger to click.")
+        count = len(self.native)
+        self.coordinator.handle(ack, source="native")
+        self.assertEqual(len(self.native), count)
+
+    def test_wrong_or_forged_action_cannot_confirm_movement(self):
+        self.submit()
+        self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"}, source="worker")
+        ack = {"type": "action", "source": "voice", "action": "move_to", "request_id": "a"}
+        for event, source in ((dict(ack, request_id="old"), "native"),
+                              (dict(ack, action="click"), "native"), (ack, "worker")):
+            self.coordinator.handle(event, source=source)
+            self.assertEqual(self.coordinator.last_target, "")
+            self.assertEqual(self.coordinator.pending_move.request_id, "a")
+
+    def test_native_move_error_prevents_late_success_status(self):
+        for key in ("a", None):
+            with self.subTest(request_id=key):
+                self.setUp()
+                self.submit()
+                self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"}, source="worker")
+                self.coordinator.handle({"type": "error", "request_id": key, "message": "Target changed"}, source="native")
+                self.assertIsNone(self.coordinator.pending_move)
+                self.coordinator.handle({"type": "action", "source": "voice", "action": "move_to", "request_id": "a"}, source="native")
+                self.assertEqual(self.coordinator.last_target, "")
+                self.assertEqual(self.native[-1]["message"], "Target changed")
+
+    def test_late_movement_cannot_overwrite_new_search_status(self):
+        self.submit()
+        self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"}, source="worker")
+        self.coordinator.handle({"type": "speech_start", "request_id": "b"}, source="native")
+        self.assertIsNone(self.coordinator.pending_move)
+        old_ack = {"type": "action", "source": "voice", "action": "move_to", "request_id": "a"}
+        count = len(self.native)
+        self.coordinator.handle(old_ack, source="native")
+        self.assertEqual(len(self.native), count)
+        target = dict(self.target, id="t2", label="Safari")
+        self.coordinator.handle({"type": "targets", "request_id": "b", "targets": [target]}, source="native")
+        self.coordinator.handle({"type": "speech_audio", "request_id": "b", "pcm_base64": "AAA=", "sample_rate": 16000}, source="native")
+        self.coordinator.handle({"type": "selection", "request_id": "b", "target_id": "t2"}, source="worker")
+        self.coordinator.handle(old_ack, source="native")
+        self.assertEqual(self.coordinator.last_target, "")
+        self.assertEqual(self.coordinator.pending_move.request_id, "b")
+        self.coordinator.handle(dict(old_ack, request_id="b"), source="native")
+        self.assertEqual(self.coordinator.last_target, "Safari")
+
+    def test_invalidated_move_cannot_claim_success_after_reacquisition(self):
+        events = ({"type": "state", "armed": False}, {"type": "pointer", "tracked": False},
+                  {"type": "gesture_cancel", "source": "gesture"})
+        for event in events:
+            with self.subTest(event=event):
+                self.setUp()
+                self.submit()
+                self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"}, source="worker")
+                self.coordinator.handle(event, source="native")
+                self.coordinator.handle({"type": "state", "armed": True}, source="native")
+                self.point()
+                self.coordinator.handle({"type": "action", "source": "voice", "action": "move_to", "request_id": "a"}, source="native")
+                self.assertIsNone(self.coordinator.pending_move)
+                self.assertEqual(self.coordinator.last_target, "")
+
+    def test_unconfirmed_move_expires_with_a_live_hand(self):
+        self.submit()
+        self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"}, source="worker")
+        for _ in range(80):
+            self.now += .25
+            self.point()
+        self.assertIsNone(self.coordinator.pending_move)
+        self.assertEqual(self.native[-1]["message"], "Pointer movement was not confirmed. Point and speak again.")
+        self.coordinator.handle({"type": "action", "source": "voice", "action": "move_to", "request_id": "a"}, source="native")
+        self.assertEqual(self.coordinator.last_target, "")
+
     def test_unknown_or_missing_target_never_moves(self):
         for selection in ("not-visible", None):
             self.submit()

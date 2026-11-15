@@ -49,6 +49,14 @@ class Choices:
     acknowledged: bool = False
 
 
+@dataclass(frozen=True)
+class PendingMove:
+    request_id: str
+    generation: int
+    label: str
+    started_at: float
+
+
 NATIVE_EVENTS = frozenset({"ready", "state", "pointer", "speech_start", "speech_cancel", "speech_audio", "targets", "error", "action", "gesture_cancel", "choices_shown", "choices_cancel"})
 WORKER_EVENTS = frozenset({"transcript", "selection", "error"})
 
@@ -68,6 +76,7 @@ class Coordinator:
         self.pointer = None
         self.pointer_at = 0.0
         self.pending: Dict[str, Search] = {}
+        self.pending_move: Optional[PendingMove] = None
         self.worker_request = None
         self.last_transcript = ""
         self.last_target = ""
@@ -87,6 +96,7 @@ class Coordinator:
         """Invalidate results permanently, including after hand reacquisition."""
         self.generation += 1
         self.pending.clear()
+        self.pending_move = None
         self.clear_choices()
 
     def clear_choices(self):
@@ -185,6 +195,9 @@ class Coordinator:
         if self.choices is not None and now >= self.choices.expires_at:
             self.invalidate()
             self.status("Numbered choices expired. Say the target name again.")
+        if self.pending_move is not None and now - self.pending_move.started_at >= self.expiry:
+            self.pending_move = None
+            self.status("Pointer movement was not confirmed. Point and speak again.")
         for key, search in list(self.pending.items()):
             if now - search.started_at > self.expiry:
                 self._discard_capture(search, "Search expired. Point at the area and speak again.")
@@ -220,6 +233,13 @@ class Coordinator:
                 # Clicks and Mission Control can change the visible context
                 # while screen discovery/model work is still in flight.
                 self.invalidate()
+            elif event.get("source") == "voice" and event.get("action") == "move_to":
+                move = self.pending_move
+                if (move is not None and self.request_id(event) == move.request_id
+                        and move.generation == self.generation and self.armed):
+                    self.pending_move = None
+                    self.last_target = move.label
+                    self.status(f'Target: {move.label}. Pinch middle / ring finger to click.')
         elif kind == "gesture_cancel":
             if event.get("source") == "gesture":
                 # Native announces gesture intent before a held pinch or fist
@@ -246,6 +266,9 @@ class Coordinator:
             if choice is not None and not choice.acknowledged:
                 self.status("Wait for the numbered circles, then say a number.")
                 return
+            # A later search owns the status even if an earlier native move
+            # finishes asynchronously while its screen check is in flight.
+            self.pending_move = None
             x, y = (choice.x, choice.y) if choice is not None else self.pointer
             region = choice.region if choice is not None else self._region(x, y)
             self.pending[key] = Search(key, self.generation, x, y, self.clock(), region,
@@ -376,11 +399,13 @@ class Coordinator:
                 if self.clock() >= choice.expires_at:
                     self.status("Numbered choices expired. Say the target name again.")
                     return
-            self.last_target = target["label"]
+            self.pending_move = PendingMove(search.request_id, self.generation, target["label"], self.clock())
+            self.status(f'Moving to {target["label"]}…')
             self.send_native(command)
-            self.status(f'Target: {target["label"]}. Pinch middle / ring finger to click.')
         elif kind == "error":
             key = self.request_id(event)
+            if self.pending_move is not None and (key is None or key == self.pending_move.request_id):
+                self.pending_move = None
             if key:
                 search = self.pending.pop(key, None)
                 if search is not None and search.choice_id is not None:

@@ -98,6 +98,28 @@ struct VoiceAction {
     }
 }
 
+/// Match a coordinator-selected point back to one native capture. Native
+/// geometry remains CGFloat in memory; JSON numbers arrive as NSNumber. Bridge
+/// both representations explicitly instead of requiring a Swift Double cast.
+func capturedVoiceTarget(_ candidates: [[String: Any]], label: String, point: CGPoint) -> [String: Any]? {
+    let key = screenTargetLabelKey(label)
+    guard !key.isEmpty, point.x.isFinite, point.y.isFinite else { return nil }
+    var selected: [String: Any]?
+    for candidate in candidates {
+        guard let caption = candidate["label"] as? String, screenTargetLabelKey(caption) == key else { continue }
+        let values = ["x", "y", "width", "height"].compactMap { field -> Double? in
+            guard let number = candidate[field] as? NSNumber,
+                  CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite else { return nil }
+            return number.doubleValue
+        }
+        guard values.count == 4, values[2] > 0, values[3] > 0,
+              abs(values[0] - point.x) < 0.01, abs(values[1] - point.y) < 0.01 else { continue }
+        guard selected == nil else { return nil }
+        selected = candidate
+    }
+    return selected
+}
+
 // Energy-based endpointing only: semantic recognition is handled by Argmax.
 struct SpeechClipper {
     var rate: Double
@@ -758,20 +780,19 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         guard let capture = currentCapture(instruction.requestID),
               capture.choiceID == json["choice_id"] as? String else { return }
         if capture.choiceID != nil {
-            let originals = capture.targets.filter {
-                guard let label = $0["label"] as? String, let requested = json["label"] as? String,
-                      let x = $0["x"] as? Double, let y = $0["y"] as? Double else { return false }
-                return screenTargetLabelKey(label) == screenTargetLabelKey(requested) &&
-                    abs(x - point.x) < 0.01 && abs(y - point.y) < 0.01
+            guard let label = json["label"] as? String,
+                  let original = capturedVoiceTarget(capture.targets, label: label, point: point) else {
+                emit(["type": "error", "request_id": instruction.requestID,
+                      "message": "Selected numbered target no longer matches its capture. Say the target name again."])
+                return
             }
-            guard originals.count == 1 else { return }
             // A page can rearrange itself without a mouse/key event while the
             // number is transcribed. Confirm the target again just before moving.
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 50_000_000)
                 let fresh = await discoverTargets(region: capture.region, pointer: capture.pointer)
                 guard currentCapture(instruction.requestID) != nil,
-                      let confirmed = revalidatedScreenTarget(originals[0], in: fresh) else {
+                      let confirmed = revalidatedScreenTarget(original, in: fresh) else {
                     emit(["type": "error", "request_id": instruction.requestID,
                           "message": "Target changed or choices expired. Say the target name again."])
                     return
@@ -967,6 +988,39 @@ func selfTest() -> Bool {
     for forbiddenAction in ["click", "double_click", "right_click", "mission_control"] {
         json["action"] = forbiddenAction
         check(VoiceAction(json, bounds: bounds) == nil, "gesture actions cannot be supplied by voice")
+    }
+    let nativeRect = CGRect(x: 200, y: 300, width: 80, height: 40)
+    let nativePoint = CGPoint(x: nativeRect.midX, y: nativeRect.midY)
+    let nativeTarget: [String: Any] = ["id": "native", "label": "Reports",
+                                      "x": nativeRect.midX, "y": nativeRect.midY,
+                                      "width": nativeRect.width, "height": nativeRect.height]
+    check(capturedVoiceTarget([nativeTarget], label: "Reports", point: nativePoint)?["id"] as? String == "native",
+          "Numbered movement resolves raw CGFloat geometry from the native capture")
+    let encodedTarget = try! JSONSerialization.data(withJSONObject: nativeTarget)
+    let decodedTarget = try! JSONSerialization.jsonObject(with: encodedTarget) as! [String: Any]
+    check(capturedVoiceTarget([decodedTarget], label: "Reports", point: nativePoint)?["id"] as? String == "native",
+          "Numbered movement also accepts JSON-roundtripped NSNumber geometry")
+    check(capturedVoiceTarget([nativeTarget], label: " reports! ", point: nativePoint) != nil,
+          "Captured target lookup uses canonical caption identity")
+    check(capturedVoiceTarget([nativeTarget, nativeTarget], label: "Reports", point: nativePoint) == nil,
+          "Two identical capture references cannot select an arbitrary target")
+    check(capturedVoiceTarget([nativeTarget], label: "Finder", point: nativePoint) == nil,
+          "A different label cannot select captured coordinates")
+    check(capturedVoiceTarget([nativeTarget], label: "Reports", point: CGPoint(x: nativePoint.x + 1, y: nativePoint.y)) == nil,
+          "Captured reference must use the exact coordinator-selected coordinates")
+    for field in ["x", "y", "width", "height"] {
+        for invalid: Any in [true, Double.nan, Double.infinity, "200"] {
+            var malformed = nativeTarget
+            malformed[field] = invalid
+            check(capturedVoiceTarget([malformed], label: "Reports", point: nativePoint) == nil,
+                  "Captured \(field) rejects boolean, nonfinite and nonnumeric geometry")
+        }
+    }
+    for field in ["width", "height"] {
+        var malformed = nativeTarget
+        malformed[field] = 0
+        check(capturedVoiceTarget([malformed], label: "Reports", point: nativePoint) == nil,
+              "Captured target dimensions must be positive")
     }
     var clipper = SpeechClipper(rate: 1000)
     check(clipper.process([Float](repeating: 0, count: 200)).isEmpty, "silence emits no clip")

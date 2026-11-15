@@ -136,6 +136,11 @@ class TestDuplicateChoices(unittest.TestCase):
         self.assertEqual(commands[1]["action"], "move_to")
         self.assertEqual(commands[1]["label"], "Open")
         self.assertIsNone(self.coordinator.choices)
+        self.assertEqual(self.coordinator.last_target, "")
+        self.assertEqual(self.coordinator.pending_move.request_id, "number")
+        self.native_event("action", source="voice", action="move_to", request_id="number")
+        self.assertEqual(self.coordinator.last_target, "Open")
+        self.assertIsNone(self.coordinator.pending_move)
 
     def test_changed_missing_or_ambiguous_targets_cancel_number_selection(self):
         variants = [

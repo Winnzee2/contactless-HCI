@@ -1,6 +1,16 @@
 # 离线验证记录与复现
 
-The [cross-application verification](CROSS_APP.md) includes successful Wi-Fi-off target-selection checks in Finder, TextEdit, and Safari. The target-board fix and numbered-choice revision pass **129 Python tests and 162 native checks**. Earlier human-input and component records retain their original scope; they do not substitute for physical acceptance of the new gestures or numbered-choice flow.
+The [cross-application verification](CROSS_APP.md) includes successful Wi-Fi-off target-selection checks in Finder, TextEdit, and Safari. After the numbered-movement correction, the suite passes **135 Python tests and 186 native checks**. Earlier human-input and component records retain their original scope; they do not substitute for physical acceptance of the new gestures or numbered-choice flow.
+
+## Numbered Cursor Movement Correction
+
+On November 14, 2026 (Eastern time), the user reported that numbered circles disappeared after a choice but the cursor stayed still. The native controller stored discovered coordinates as Swift `CGFloat`, while the numbered-choice lookup required `Double`. That cast failed, silently rejecting the movement. Earlier pipeline fixtures had crossed JSON, converting those values to `NSNumber`, so they did not expose this native-only defect.
+
+The lookup now bridges native and JSON numeric values through validated `NSNumber.doubleValue`. It still rejects invalid coordinates, mismatched labels, and ambiguous references. Failed lookups report a request-specific error. The coordinator displays “Moving to…” until the matching native movement acknowledgment arrives; it no longer announces a successful target solely because it sent a movement request.
+
+An isolated AppKit probe compiled the production controller before and after the fix. Both versions discovered the actual Safari practice buttons, displayed choices, recaptured the screen, and received JSON choice-2 movement messages. The original version reproduced disappearing circles without movement. With **Wi-Fi Off**, the corrected version completed final screen revalidation, emitted the native movement acknowledgment, and the actual system cursor was measured at the expected center `(430, 385.5)`. The probe restored the original cursor position and sent no clicks. Hand freshness was simulated; this check did not use the camera, microphone, or a new physical hand gesture.
+
+All **135 Python tests**, including real Argmax integration, and **186 native checks** passed with Wi-Fi off. New regressions cover raw `CGFloat` versus JSON geometry, malformed or ambiguous references, and movement acknowledgment ordering, cancellation, and expiry. Wi-Fi was restored afterward. Evidence is local in ignored `.build/verification/number-move/`: `before-events.jsonl`, `after-events.jsonl`, `python-tests.txt`, `native-tests.json`, and `wifi.json`.
 
 ## Target Board Recovery and Numbered Choices
 
