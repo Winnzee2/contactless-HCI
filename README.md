@@ -2,7 +2,9 @@
 
 On an Apple Silicon Mac, move the pointer with your index finger, pinch to click, and name a nearby visible control to target it across applications. Camera recognition, speech transcription, accessibility inspection, screen text recognition, and Bonsai inference all run locally. No browser extension or integration with a particular website is required.
 
-Hand control uses the full camera image. The preview border marks the entire image, and **Pointer reach** adjusts how far index-finger movement travels: 100% gives 1:1 full-frame mapping, while 115% (default) reaches screen edges with slightly less movement. The slider supports 100–150% and remembers your setting. The actual cursor stays within screen bounds. Smoothing and pinch stabilization remain enabled; keep the relevant fingertips and palm landmarks visible to the camera.
+Hand detection uses the full camera image, but **cursor position comes from your index finger relative to your palm**, not your hand's location in the image. Moving the entire hand, moving closer to the camera, or rolling it in the image should not steer the cursor. Start with a comfortable, slightly bent index finger when enabling control: that first pose becomes the center. Move the finger sideways, straighten it to aim upward, or curl it to aim downward. **Recenter pointing** resets the neutral pose. **Pointing sensitivity** (100–150%, remembered across launches) adjusts the travel from small finger movements. Smoothing and pinch stabilization remain enabled.
+
+The pointing calculation uses visible 2D landmarks, not a 3D ray. Keep the wrist, base of the middle finger, and index fingertip visible; severe out-of-plane tilt or occlusion can impair pointing. An unavailable palm pauses tracking instead of falling back to absolute hand position. Brief tracking loss preserves the neutral pose; disabling and re-enabling control recalibrates it.
 
 A cyan sensing circle follows the cursor while hand control is active. It is a visual focus indicator; voice targeting still searches the entire primary screen. A translucent speech panel stays in the **upper-right corner**, showing “Listening…” immediately at speech onset and recognized words in red when transcription finishes. It remains visible while paused, and recognized words stay until the next utterance. Both overlays are click-through and never take keyboard focus. The speech panel is excluded from screen capture so it cannot become its own recognition target.
 
@@ -41,7 +43,7 @@ You may need to quit and restart after changing permissions. The app starts **PA
 
 | Input | Behavior |
 | --- | --- |
-| Move your index finger | Move the pointer on the primary display |
+| Deflect your index finger relative to your palm | Aim the pointer on the primary display |
 | Briefly pinch thumb + middle finger, then release | One left click on release |
 | Pinch and release thumb + middle twice quickly at the same position | Natural double-click using macOS’s double-click interval |
 | Pinch thumb + ring finger | Right click |

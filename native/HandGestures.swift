@@ -52,6 +52,37 @@ func pinchPalmScale(joints: [VNHumanHandPoseObservation.JointName: CGPoint], siz
                length(.indexMCP, .littleMCP) * 1.25)
 }
 
+/// Palm-local index direction, in palm-length units. Translation, uniform
+/// scale and in-plane hand roll cancel before cursor smoothing is applied.
+/// Vision supplies 2D landmarks; fully occluded/edge-on palms are not inferred.
+func palmRelativeIndex(joints: [VNHumanHandPoseObservation.JointName: CGPoint], size: CGSize) -> CGPoint? {
+    guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0,
+          let wrist = joints[.wrist], let middle = joints[.middleMCP],
+          let index = joints[.indexTip] else { return nil }
+    let points = [wrist, middle, index]
+    guard points.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else { return nil }
+    let dx = (middle.x - wrist.x) * size.width
+    let dy = (middle.y - wrist.y) * size.height
+    let length = hypot(dx, dy)
+    guard length > size.height * 0.04 else { return nil }
+    let x = (index.x - (wrist.x + middle.x) / 2) * size.width
+    let y = (index.y - (wrist.y + middle.y) / 2) * size.height
+    return CGPoint(x: (x * dy - y * dx) / (length * length),
+                   y: (x * dx + y * dy) / (length * length))
+}
+
+struct PalmPointing {
+    private var neutral: CGPoint?
+    mutating func reset() { neutral = nil }
+    mutating func update(_ direction: CGPoint) -> CGPoint {
+        if neutral == nil { neutral = direction }
+        // A small finger deflection spans the display; screenPoint supplies
+        // mirroring, adjustable gain and final edge clamping.
+        return CGPoint(x: 0.5 + (direction.x - neutral!.x) * 0.75,
+                       y: 0.5 + (direction.y - neutral!.y) * 0.9)
+    }
+}
+
 struct RapidClickSequence {
     private var lastTime = -Double.infinity
     private var lastPoint = CGPoint.zero
@@ -340,6 +371,33 @@ func handGestureSelfTest() -> (tests: Int, failures: [String]) {
         tests += 1
         if !okay { failures.append(message) }
     }
+    let cameraSize = CGSize(width: 1280, height: 720)
+    let pose: [VNHumanHandPoseObservation.JointName: CGPoint] = [
+        .wrist: CGPoint(x: 0.45, y: 0.25), .middleMCP: CGPoint(x: 0.45, y: 0.5),
+        .indexTip: CGPoint(x: 0.4, y: 0.75)]
+    let aim = palmRelativeIndex(joints: pose, size: cameraSize)!
+    func near(_ a: CGPoint?, _ b: CGPoint) -> Bool {
+        guard let a else { return false }
+        return hypot(a.x - b.x, a.y - b.y) < 0.000001
+    }
+    check(near(palmRelativeIndex(joints: pose.mapValues { CGPoint(x: $0.x + 0.1, y: $0.y - 0.1) }, size: cameraSize), aim),
+          "Moving the whole hand does not steer the pointer")
+    check(near(palmRelativeIndex(joints: pose.mapValues { CGPoint(x: $0.x * 0.7, y: $0.y * 0.7) }, size: cameraSize), aim),
+          "Hand distance changes do not steer the pointer")
+    let rolled = pose.mapValues { p in
+        CGPoint(x: (0.5 * p.x * cameraSize.width - sqrt(0.75) * p.y * cameraSize.height) / cameraSize.width,
+                y: (sqrt(0.75) * p.x * cameraSize.width + 0.5 * p.y * cameraSize.height) / cameraSize.height)
+    }
+    check(near(palmRelativeIndex(joints: rolled, size: cameraSize), aim), "Palm-local direction survives in-plane roll")
+    check(palmRelativeIndex(joints: [:], size: cameraSize) == nil, "Missing palm never falls back to absolute pointing")
+    var collapsed = pose; collapsed[.middleMCP] = collapsed[.wrist]
+    check(palmRelativeIndex(joints: collapsed, size: cameraSize) == nil, "Collapsed palm cannot amplify jitter")
+    var aiming = PalmPointing()
+    check(aiming.update(aim) == CGPoint(x: 0.5, y: 0.5), "Initial comfortable pose maps to center")
+    check(aiming.update(CGPoint(x: aim.x + 0.3, y: aim.y)).x > 0.5, "Finger lateral deflection steers")
+    check(aiming.update(CGPoint(x: aim.x, y: aim.y - 0.3)).y < 0.5, "Finger flexion steers vertically")
+    aiming.reset()
+    check(aiming.update(CGPoint(x: 1, y: 1)) == CGPoint(x: 0.5, y: 0.5), "Recenter replaces neutral pose")
     var clicks = RapidClickSequence()
     let clickPoint = CGPoint(x: 100, y: 100)
     check(clicks.register(point: clickPoint, time: 1, interval: 0.5) == 1, "First click is immediate")
