@@ -168,3 +168,5 @@ The second command requires prepared `tiny.en` and `base.en` models and permissi
 Dependencies: [Argmax WhisperKit](https://github.com/argmaxinc/argmax-oss-swift), [Apple Vision](https://developer.apple.com/documentation/vision), and the locally installed PrismML Bonsai-2 model and LM Studio MLX runtime.
 
 Voice recognition searches the entire primary screen. Pointer sensitivity is increased, with stronger smoothing to reduce jitter. As thumb approaches the middle, ring, or pinky finger, the cursor freezes before contact; opening the fingers releases it.
+
+Pinch contact uses multiple palm axes to tolerate hand rotation and foreshortening. Middle, ring, and pinky contacts use a more forgiving threshold and a shorter release distance. An active click keeps ownership when adjacent fingers move close; an obscured unrelated fingertip no longer drops all hand tracking. Keep the thumb, intended fingertip, and enough palm landmarks visible; fully occluded contacts cannot be determined by the camera.

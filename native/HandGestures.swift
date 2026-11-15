@@ -4,6 +4,18 @@ import Foundation
 import CoreGraphics
 import Vision
 
+/// Use multiple palm axes so a foreshortened wrist-to-middle axis cannot
+/// inflate contact distance when the hand tilts. Coordinates remain pixel-correct.
+func pinchPalmScale(joints: [VNHumanHandPoseObservation.JointName: CGPoint], size: CGSize) -> Double {
+    func length(_ a: VNHumanHandPoseObservation.JointName, _ b: VNHumanHandPoseObservation.JointName) -> Double {
+        guard let x = joints[a], let y = joints[b] else { return 0 }
+        return hypot((x.x - y.x) * size.width, (x.y - y.y) * size.height)
+    }
+    return max(length(.wrist, .indexMCP), length(.wrist, .middleMCP),
+               length(.wrist, .ringMCP), length(.wrist, .littleMCP),
+               length(.indexMCP, .littleMCP) * 1.25)
+}
+
 enum PinchHoldEvent: Equatable {
     case none, began, singleClick, doubleClick, released, cancelled
 }
@@ -34,11 +46,11 @@ struct HoldPinchLatch {
             let wasActive = active
             reset()
             lastSample = time
-            ready = ratio >= 0.65
+            ready = ratio >= 0.58
             return wasActive ? .cancelled : .none
         }
         lastSample = time
-        if ratio >= 0.65 {
+        if ratio >= 0.58 {
             let wasActive = active
             let alreadyFired = fired
             let elapsed = beganAt.map { time - $0 } ?? 0
@@ -59,7 +71,7 @@ struct HoldPinchLatch {
             }
             return .none
         }
-        guard ready, ratio <= 0.35 else { return .none }
+        guard ready, ratio <= 0.40 else { return .none }
         ready = false
         active = true
         beganAt = time
@@ -79,9 +91,9 @@ struct ScrollPinchLatch {
         guard eligible, ratio.isFinite, ratio >= 0, y.isFinite, time.isFinite else { reset(); return 0 }
         if let previous = lastTime, time < previous || time - previous > 0.4 { reset() }
         lastTime = time
-        if ratio >= 0.65 { active = false; ready = true; anchor = nil; return 0 }
+        if ratio >= 0.58 { active = false; ready = true; anchor = nil; return 0 }
         if !active {
-            guard ready, ratio <= 0.35 else { return 0 }
+            guard ready, ratio <= 0.40 else { return 0 }
             active = true; ready = false; anchor = y; return 0
         }
         guard let origin = anchor else { anchor = y; return 0 }
@@ -299,6 +311,23 @@ func handGestureSelfTest() -> (tests: Int, failures: [String]) {
         tests += 1
         if !okay { failures.append(message) }
     }
+    let tilted: [VNHumanHandPoseObservation.JointName: CGPoint] = [
+        .wrist: CGPoint(x: 0.5, y: 0.2), .middleMCP: CGPoint(x: 0.5, y: 0.21),
+        .indexMCP: CGPoint(x: 0.4, y: 0.25), .littleMCP: CGPoint(x: 0.6, y: 0.25)]
+    let scale = pinchPalmScale(joints: tilted, size: CGSize(width: 1000, height: 1000))
+    check(abs(scale - 250) < 0.001, "Tilted palm uses its visible width instead of collapsed length")
+    let rotated = tilted.mapValues { CGPoint(x: 1 - $0.y, y: $0.x) }
+    check(abs(pinchPalmScale(joints: rotated, size: CGSize(width: 1000, height: 1000)) - scale) < 0.001,
+          "Palm scale is invariant under rotation")
+    let mirrored = tilted.mapValues { CGPoint(x: 1 - $0.x, y: $0.y) }
+    check(abs(pinchPalmScale(joints: mirrored, size: CGSize(width: 1000, height: 1000)) - scale) < 0.001,
+          "Palm scale supports either hand")
+    var easier = HoldPinchLatch()
+    _ = easier.update(ratio: 0.60, eligible: true, time: 0)
+    check(easier.update(ratio: 0.39, eligible: true, time: 0.1) == .began,
+          "Near contact is sufficient to begin a click")
+    check(easier.update(ratio: 0.60, eligible: true, time: 0.2) == .singleClick,
+          "A modest release completes the click")
     var approach = PinchApproachLatch()
     check(!approach.update(ratio: 0.9), "Open fingers allow pointer motion")
     check(!approach.update(ratio: 0.54), "Separated fingers no longer freeze the cursor")

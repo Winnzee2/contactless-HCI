@@ -44,8 +44,8 @@ struct PinchLatch {
     mutating func reset() { released = false; pinched = false }
     mutating func update(ratio: Double, time: Double) -> Bool {
         guard ratio.isFinite else { reset(); return false }
-        if ratio >= 0.65 { released = true; pinched = false; return false }
-        guard ratio <= 0.35, released, !pinched else { return false }
+        if ratio >= 0.58 { released = true; pinched = false; return false }
+        guard ratio <= 0.40, released, !pinched else { return false }
         pinched = true
         released = false
         guard time - lastClick >= 0.65 else { return false }
@@ -635,15 +635,18 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             try VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:]).perform([request])
             guard let hand = request.results?.first else { DispatchQueue.main.async { self.loseHand() }; return }
             let points = try hand.recognizedPoints(.all)
-            guard let index = points[.indexTip], let thumb = points[.thumbTip], let wrist = points[.wrist], let middle = points[.middleMCP], let middleTip = points[.middleTip], let ringTip = points[.ringTip],
-                  [index, thumb, wrist, middle, middleTip, ringTip].allSatisfy({ $0.confidence >= 0.35 }) else {
+            guard let index = points[.indexTip], let thumb = points[.thumbTip],
+                  index.confidence >= 0.35, thumb.confidence >= 0.35 else {
                 DispatchQueue.main.async { self.loseHand() }; return
             }
-            let palm = imageDistance(wrist.location, middle.location, size: size)
-            guard palm > 0.015 * size.height else { DispatchQueue.main.async { self.loseHand() }; return }
-            let leftRatio = imageDistance(middleTip.location, thumb.location, size: size) / palm
-            let rightRatio = imageDistance(ringTip.location, thumb.location, size: size) / palm
             let visibleJoints = points.filter { $0.value.confidence >= 0.35 }.mapValues { $0.location }
+            let palm = pinchPalmScale(joints: visibleJoints, size: size)
+            guard palm > 0.015 * size.height else { DispatchQueue.main.async { self.loseHand() }; return }
+            func ratio(_ joint: VNHumanHandPoseObservation.JointName) -> Double {
+                guard let tip = visibleJoints[joint] else { return .infinity }
+                return imageDistance(tip, thumb.location, size: size) / palm
+            }
+            let leftRatio = ratio(.middleTip), rightRatio = ratio(.ringTip)
             DispatchQueue.main.async { self.observe(index.location, leftRatio: leftRatio, rightRatio: rightRatio, time: time, videoSize: size, joints: visibleJoints) }
         } catch {
             DispatchQueue.main.async {
@@ -669,8 +672,8 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             let wasScrolling = scrollPinch.active
             let scrollRatio: Double
             if let pinky = joints[.littleTip], let thumb = joints[.thumbTip],
-               let wrist = joints[.wrist], let middle = joints[.middleMCP] {
-                let palm = imageDistance(wrist, middle, size: videoSize)
+               joints[.wrist] != nil {
+                let palm = pinchPalmScale(joints: joints, size: videoSize)
                 scrollRatio = palm > 0 ? imageDistance(pinky, thumb, size: videoSize) / palm : .infinity
             } else { scrollRatio = .infinity }
             let approaching = pinchApproach.update(ratio: min(leftRatio, rightRatio, scrollRatio))
@@ -679,7 +682,8 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             }
             let scrollDelta = scrollPinch.update(ratio: scrollRatio, y: Double(joints[.wrist]?.y ?? raw.y),
                 eligible: pose != .fist && pose != .closing && !fistOpen.isEngaged &&
-                    !missionControlTransition.blocksInput(time: now()) && leftRatio > 0.45 && rightRatio > 0.45,
+                    !missionControlTransition.blocksInput(time: now()) && !leftPinch.active && !rightPinch.pinched &&
+                    (scrollPinch.active || scrollRatio >= 0.58 || scrollRatio < min(leftRatio, rightRatio)),
                 time: time)
             if scrollPinch.active || wasScrolling {
                 setGestureBusy(scrollPinch.active)
@@ -698,8 +702,9 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 lastActionTime = time
                 return
             }
-            let showWindows = fistOpen.update(pose: pose, time: time)
-            if showWindows || fistOpen.isEngaged || pose == .fist || pose == .closing ||
+            let clickEngaged = leftPinch.active || rightPinch.pinched
+            let showWindows = fistOpen.update(pose: clickEngaged ? .other : pose, time: time)
+            if showWindows || fistOpen.isEngaged || (!clickEngaged && (pose == .fist || pose == .closing)) ||
                 missionControlTransition.blocksInput(time: now()) {
                 setGestureBusy(true)
                 scrollPinch.reset(); leftPinch.reset(); rightPinch.reset(); pinchApproach.reset(); pinchPoint = nil
@@ -711,13 +716,14 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 return
             }
             pinchEvent = leftPinch.update(ratio: leftRatio,
-                                         eligible: rightRatio > 0.45 && (leftPinch.active || time - lastActionTime >= 0.5),
+                                         eligible: leftPinch.active || (!rightPinch.pinched &&
+                                             (leftRatio >= 0.58 || leftRatio <= rightRatio) && time - lastActionTime >= 0.5),
                                          time: time)
             if pinchEvent == .began && pinchPoint == nil {
                 pinchPoint = pointer ?? CGEvent(source: nil)?.location ?? target
             }
             setGestureBusy(leftPinch.active || pinchApproach.active)
-            if leftPinch.active || leftRatio <= 0.45 { rightPinch.reset() }
+            if leftPinch.active || (!rightPinch.pinched && rightRatio < 0.58 && leftRatio <= rightRatio) { rightPinch.reset() }
             else { rightEdge = rightPinch.update(ratio: rightRatio, time: time) }
         }
         // Preserve the captured point through release, including the frame that
@@ -736,7 +742,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
         if pinchEvent == .singleClick { click(.left, at: point) }
         else if pinchEvent == .doubleClick { click(.double, at: point) }
-        else if rightEdge && leftRatio > 0.45 { click(.right, at: point) }
+        else if rightEdge { click(.right, at: point) }
         if !leftPinch.active && !pinchApproach.active { pinchPoint = nil }
     }
     func loseHand() {
