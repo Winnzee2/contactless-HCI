@@ -1,6 +1,20 @@
 # 离线验证记录与复现
 
-The later [cross-application verification](CROSS_APP.md) adds five successful Wi-Fi-off target-selection checks in Finder, TextEdit, and Safari, plus the target highlight/countdown. The current regression totals are 91 Python checks and 51 native checks. The earlier human-input and component records below retain their original scope; they do not substitute for new physical gesture tests in those applications.
+The later [cross-application verification](CROSS_APP.md) adds five successful Wi-Fi-off target-selection checks in Finder, TextEdit, and Safari, plus the target highlight/countdown. After adding held-pinch double-click and fist-to-open Mission Control, the current regression totals are **94 Python checks and 106 native checks**. Earlier human-input and component records retain their original scope; they do not substitute for physical acceptance of the new gestures.
+
+## Held Pinch and Window Overview Verification
+
+On November 14, 2026 (Eastern time), the updated native helper compiled successfully and passed all 106 self-checks. These include 43 pure timing/pose checks for the new gestures, nine click-event construction checks, and rejection of double-click, right-click, and Mission Control messages through the voice-action interface. The full Python suite passed all 94 tests, including the optional real Argmax checks, with no skips.
+
+The middle-finger pinch waits for release before a single click, or emits one double-click after 0.7 seconds. Holding longer produces no repeated clicks; releasing after the double produces no third click. The gesture fixes the pointer at the captured pinch position. Pause, tracking loss, competing gestures, and stale frames cancel pending recognition. Native gesture cancellation invalidates in-flight voice requests; native control also rejects queued voice movements while the gesture owns the pointer.
+
+A separate local AppKit counter window received real system mouse events from the production event builder. The single-click phase received down/up with click counts `[1, 1]`; the double-click phase received exactly four edges with counts `[1, 1, 2, 2]`, all at the same position. The test restored the original pointer afterward. This verifies actual double-click event delivery, not physical hand recognition.
+
+The production Mission Control launcher was invoked separately. The actual desktop window overview was visually verified and dismissed with Escape. It uses the bundled macOS application through `NSWorkspace`, without a network service or a configurable keyboard shortcut. Launching it does not click, move, minimize, or close the displayed windows.
+
+Local evidence is under the ignored `.build/verification/gestures/` directory: `actual-clicks.json`, `mission-control-launch.json`, `mission-control-visual.json`, and `python-tests.log`. Screen evidence stays local. The updated Finder launcher was restarted and its new gesture instructions and PAUSED status were checked.
+
+The new fist classifier was tested with synthetic hand geometry and temporal traces; a recorded physical fist-to-open or held-pinch camera acceptance session has not been completed. The earlier human tests below concern the previous single-click behavior. The new gesture changes add no model downloads or network dependency; the earlier Wi-Fi-off checks remain separate evidence for the existing local speech and targeting pipeline.
 
 ## 已完成的 Wi-Fi 关闭实测
 

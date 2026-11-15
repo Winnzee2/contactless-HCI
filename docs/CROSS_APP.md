@@ -2,7 +2,11 @@
 
 Local Control uses system mouse events and local screen discovery. It does not depend on the demo board, website selectors, browser JavaScript, a browser extension, or an application whitelist.
 
-Point near the intended control, say its visible label or accessible name, and pinch to click after the pointer reaches it. A cyan ring and a click-through caption identify the target. The caption counts down the three-second protection period, then displays “Pinch to click.” A click, pause, tracking loss, or deliberate movement after the protection period clears the lock and highlight. Beginning another voice search hides the old highlight before capture.
+Point near the intended control, say its visible label or accessible name, and pinch to click after the pointer reaches it. Briefly pinch thumb and middle finger, then release for one left click; hold that pinch for about 0.7 seconds for one double-click. Thumb and ring finger perform a right click. The pointer stays at the pinch position while you hold it, and a held gesture fires only once until released.
+
+A cyan ring and a click-through caption identify the voice target. The caption counts down the three-second protection period, then displays “Pinch to click.” A click, pause, tracking loss, or deliberate movement after the protection period clears the lock and highlight. Beginning another voice search hides the old highlight before capture.
+
+Clench a fist briefly, then fully open your hand to display the current desktop's windows in Mission Control. Starting a pinch or fist gesture invalidates any pending voice result so that an old result cannot move the pointer during the action. Speech still only positions the pointer; it cannot double-click or open Mission Control.
 
 ## Discovery and Selection
 
@@ -65,6 +69,6 @@ Normal runtime does not save these diagnostic snapshots. Explicit diagnostics ca
 - Discovery stays near the pointer and on the primary display. Move closer to a target first; scrolling, window rearrangement, or content changes during recognition can invalidate the captured location.
 - Distinct controls with the same name require a clearer label or a closer pointer position that excludes the other control. The program does not guess between them.
 - Model output can still be invalid or unrelated, especially with noisy speech or crowded interfaces. Validation rejects those results without a coordinate fallback or automatic click.
-- Voice phrases such as “open Reports” mean **position the pointer on Reports**. Opening the folder still requires the normal user gesture or interaction.
+- Voice phrases such as “open Reports” mean **position the pointer on Reports**. Hold the thumb-and-middle-finger pinch for about 0.7 seconds to double-click and open that folder.
 
-The regression suite includes request wrappers, full-name priority, ambiguity, Unicode label normalization, offline boundaries, native clipping and coordinate conversion, Finder read-only containers, duplicate caption removal, and target-overlay geometry. On this revision, **91 Python tests** (including real Argmax checks) and **51 native checks** passed.
+The cross-application revision recorded above passed **91 Python tests** (including real Argmax checks) and **51 native checks**. Its checks cover request wrappers, full-name priority, ambiguity, Unicode label normalization, offline boundaries, native clipping and coordinate conversion, Finder read-only containers, duplicate caption removal, and target-overlay geometry. Those earlier runs do not constitute physical-hand acceptance of the subsequently added held-pinch and fist-open gestures.

@@ -104,10 +104,44 @@ class TestCoordinator(unittest.TestCase):
         self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"})
         self.assertFalse(any(x["type"] == "voice_action" for x in self.native))
 
-    def test_gesture_click_cancels_screen_context(self):
+    def test_gesture_actions_cancel_screen_context(self):
+        for action in ("click", "right_click", "double_click", "mission_control"):
+            with self.subTest(action=action):
+                self.setUp()
+                self.submit()
+                self.coordinator.handle({"type": "action", "source": "gesture", "action": action}, source="native")
+                self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"}, source="worker")
+                self.assertFalse(any(x["type"] == "voice_action" for x in self.native))
+
+    def test_gesture_intent_cancels_capture_before_any_click(self):
+        self.begin()
+        self.coordinator.handle({"type": "gesture_cancel", "source": "gesture"}, source="native")
+        self.coordinator.handle({"type": "targets", "request_id": "a", "targets": [self.target]}, source="native")
+        self.coordinator.handle({"type": "speech_audio", "request_id": "a", "pcm_base64": "AAA=", "sample_rate": 16000}, source="native")
+        self.assertEqual(self.coordinator.pending, {})
+        self.assertEqual(self.worker, [])
+        self.assertFalse(any(x["type"] == "voice_action" for x in self.native))
+
+    def test_gesture_intent_cancels_result_but_waits_for_running_worker(self):
         self.submit()
-        self.coordinator.handle({"type": "action", "source": "gesture", "action": "click"}, source="native")
+        self.coordinator.handle({"type": "gesture_cancel", "source": "gesture"}, source="native")
+        self.coordinator.handle({"type": "speech_start", "request_id": "b"}, source="native")
+        self.assertEqual(self.coordinator.pending, {})
+        self.assertEqual(self.coordinator.worker_request, "a")
         self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1"}, source="worker")
+        self.assertFalse(any(x["type"] == "voice_action" for x in self.native))
+        self.coordinator.handle({"type": "speech_start", "request_id": "b"}, source="native")
+        self.assertIn("b", self.coordinator.pending)
+
+    def test_worker_cannot_forge_gesture_intent_or_mission_control(self):
+        self.submit()
+        generation = self.coordinator.generation
+        for event in ({"type": "gesture_cancel", "source": "gesture"},
+                      {"type": "action", "source": "gesture", "action": "mission_control"},
+                      {"type": "action", "source": "gesture", "action": "double_click"}):
+            self.coordinator.handle(event, source="worker")
+        self.assertEqual(self.coordinator.generation, generation)
+        self.assertIn("a", self.coordinator.pending)
         self.assertFalse(any(x["type"] == "voice_action" for x in self.native))
 
     def test_clamped_screen_edge_region_keeps_valid_candidates(self):

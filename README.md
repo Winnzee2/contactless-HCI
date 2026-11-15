@@ -2,7 +2,7 @@
 
 On an Apple Silicon Mac, move the pointer with your index finger, pinch to click, and name a nearby visible control to target it across applications. Camera recognition, speech transcription, accessibility inspection, screen text recognition, and Bonsai inference all run locally. No browser extension or integration with a particular website is required.
 
-**Voice positions the pointer; it never clicks.** For example, point near a visible label and say “Codex.” The pointer moves to the recognized target and locks in place. For the first **3 seconds**, finger movement cannot pull it away, giving you time to pinch your thumb and middle finger for a left click.
+**Voice positions the pointer; it never clicks.** For example, point near a visible label and say “Codex.” The pointer moves to the recognized target and locks in place. For the first **3 seconds**, finger movement cannot pull it away, giving you time to pinch and release your thumb and middle finger for a left click, or hold the pinch for a double-click.
 
 A click-through highlight shows the selected target and the remaining hold time. After the countdown, it shows “Pinch to click” while the target remains locked. It disappears when you click, release the lock, pause, lose hand tracking, or begin another voice search.
 
@@ -36,8 +36,10 @@ You may need to quit and restart after changing permissions. The app starts **PA
 | Input | Behavior |
 | --- | --- |
 | Move your index finger | Move the pointer on the primary display |
-| Pinch thumb + middle finger | Left click; release before triggering another click |
+| Briefly pinch thumb + middle finger, then release | One left click on release |
+| Hold thumb + middle finger together for about **0.7 seconds** | One double-click at the pinch position; release before triggering another click |
 | Pinch thumb + ring finger | Right click |
+| Clench a fist briefly, then fully open your hand | Show the current desktop's windows in Mission Control |
 | Name a nearby control, such as “Codex” or “open Reports” | Argmax transcription → accessibility labels and local OCR → Bonsai selection → pointer positioning; no click |
 | Move your finger during the first 3 seconds after targeting | Keep the pointer on the target while you prepare a pinch |
 | Move your hand deliberately after 3 seconds | Release the lock; a steady hand keeps the target locked |
@@ -45,7 +47,11 @@ You may need to quit and restart after changing permissions. The app starts **PA
 | Escape | Pause control |
 | Q, while the control window is active, or close the window | Quit |
 
-A pinch click releases the lock immediately. Pausing or losing reliable hand tracking also clears the lock immediately, including during the 3-second protection period.
+A single click, double-click, or right click releases the target lock. A held middle-finger pinch sends one double-click without an extra preliminary single click; holding longer does not repeat it. The pointer stays at the pinch position until you release.
+
+For Mission Control, hold a closed fist for about **0.35 seconds**, then open your hand within **2 seconds** and keep it open briefly. The gesture cancels pending voice targeting and does not send a mouse click. A short cooldown prevents repeated triggers. Both new gestures run locally and also work in `--gesture-only` mode.
+
+Pausing or losing reliable hand tracking cancels an unfinished gesture and clears the target lock immediately, including during the 3-second protection period. Open your fingers before starting another pinch after a pause or tracking loss.
 
 Additional launch options:
 

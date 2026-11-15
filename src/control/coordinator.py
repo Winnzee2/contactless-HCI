@@ -19,7 +19,7 @@ class Search:
     submitted: bool = False
 
 
-NATIVE_EVENTS = frozenset({"ready", "state", "pointer", "speech_start", "speech_cancel", "speech_audio", "targets", "error", "action"})
+NATIVE_EVENTS = frozenset({"ready", "state", "pointer", "speech_start", "speech_cancel", "speech_audio", "targets", "error", "action", "gesture_cancel"})
 WORKER_EVENTS = frozenset({"transcript", "selection", "error"})
 
 
@@ -114,7 +114,13 @@ class Coordinator:
                 self.invalidate()
         elif kind == "action":
             if event.get("source") == "gesture":
-                # A click can change the visible page while OCR/model work is in flight.
+                # Clicks and Mission Control can change the visible context
+                # while screen discovery/model work is still in flight.
+                self.invalidate()
+        elif kind == "gesture_cancel":
+            if event.get("source") == "gesture":
+                # Native announces gesture intent before a held pinch or fist
+                # completes, so an old model result cannot interrupt it.
                 self.invalidate()
         elif kind == "speech_start":
             key = self.request_id(event)

@@ -25,7 +25,8 @@ PY_OVERLAY
 fi
 xcrun swiftc "${OVERLAY_ARGS[@]}" -parse-as-library -swift-version 5 -target "$(uname -m)-apple-macos14.0" -O -module-cache-path "$BUILD/module-cache" \
   -framework AppKit -framework AVFoundation -framework Vision -framework ScreenCaptureKit -framework ApplicationServices \
-  "$ROOT/native/GestureCamera.swift" "$ROOT/native/ScreenTargets.swift" "$ROOT/native/TargetOverlay.swift" -o "$APP/Contents/MacOS/GestureCamera"
+  "$ROOT/native/GestureCamera.swift" "$ROOT/native/ScreenTargets.swift" "$ROOT/native/TargetOverlay.swift" \
+  "$ROOT/native/HandGestures.swift" "$ROOT/native/DesktopActions.swift" -o "$APP/Contents/MacOS/GestureCamera"
 cp "$ROOT/native/Info.plist" "$APP/Contents/Info.plist"
 /usr/bin/codesign --force --sign - "$APP" >&2
 printf '%s\n' "$APP/Contents/MacOS/GestureCamera"

@@ -329,8 +329,13 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     var lastPointerEvent = -Double.infinity
     var lastActionTime = -Double.infinity
     var tracked = false
-    var leftPinch = PinchLatch()
+    var leftPinch = HoldPinchLatch()
     var rightPinch = PinchLatch()
+    var fistOpen = FistOpenLatch()
+    var pinchPoint: CGPoint?
+    var gestureBusy = false
+    var missionControlPending = false
+    var missionControlTransitionUntil = -Double.infinity
     var lastRawPoint: CGPoint?
     var targetLock = TargetLock()
     let targetOverlay = TargetOverlay()
@@ -378,7 +383,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         stateLabel.font = .systemFont(ofSize: 18, weight: .semibold)
         speechLabel = NSTextField(wrappingLabelWithString: useVoice ? "Voice is preparing locally." : "Camera-only mode. Voice capture is off.")
         speechLabel.maximumNumberOfLines = 3
-        let hint = NSTextField(wrappingLabelWithString: "Index finger: move pointer · Thumb + middle: left click · Thumb + ring: right click\nSpace: enable/pause · Escape: pause globally · Q: quit this window")
+        let hint = NSTextField(wrappingLabelWithString: "Index: move · Thumb + middle: release to click, hold 0.7s to double-click · Thumb + ring: right click\nFist, then open hand: show windows · Space: enable/pause · Escape: pause · Q: quit")
         hint.textColor = .secondaryLabelColor
         toggleButton = NSButton(title: "Enable pointer", target: self, action: #selector(toggle))
         toggleButton.bezelStyle = .rounded
@@ -505,6 +510,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
         armed = value
         leftPinch.reset(); rightPinch.reset()
+        fistOpen.reset(); pinchPoint = nil; gestureBusy = false
         targetLock.clear()
         targetOverlay.hide()
         mic.setArmed(value && tracked)
@@ -527,6 +533,21 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func report(_ message: String) {
         speechLabel.stringValue = message
         emit(["type": "error", "message": message])
+    }
+    func setGestureBusy(_ busy: Bool) {
+        guard busy != gestureBusy else { return }
+        gestureBusy = busy
+        mic.setArmed(armed && tracked && !busy)
+        if busy { emit(["type": "gesture_cancel", "source": "gesture"]) }
+    }
+    var acceptsVoiceTarget: Bool {
+        !gestureBusy && !missionControlPending && now() >= missionControlTransitionUntil && now() - lastActionTime >= 0.5
+    }
+    func publishPointer(_ point: CGPoint, time: Double) {
+        if time - lastPointerEvent > 0.05 {
+            emit(["type": "pointer", "x": point.x, "y": point.y, "tracked": true])
+            lastPointerEvent = time
+        }
     }
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         let time = now()
@@ -560,34 +581,61 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         guard !closing, now() - time < 0.4 else { return }
         let regainedHand = !tracked
         tracked = true; lastHandTime = time
-        if regainedHand && armed { mic.setArmed(true) }
+        if regainedHand && armed && !gestureBusy { mic.setArmed(true) }
         preview.videoSize = videoSize; preview.rawPoint = raw; preview.joints = joints
         lastRawPoint = raw
         let target = screenPoint(raw, bounds: screen)
-        if let locked = targetLock.resolve(hand: raw, time: time) { pointer = locked }
+        var pinchEvent = PinchHoldEvent.none
+        var rightEdge = false
+        if armed {
+            guard AXIsProcessTrusted() else { setArmed(false); return }
+            let pose = classifyHandPose(joints: joints, videoSize: videoSize)
+            let showWindows = fistOpen.update(pose: pose, time: time)
+            if showWindows || fistOpen.isEngaged || pose == .fist || pose == .closing ||
+                missionControlPending || time < missionControlTransitionUntil {
+                setGestureBusy(true)
+                leftPinch.reset(); rightPinch.reset(); pinchPoint = nil
+                targetLock.clear(); targetOverlay.hide()
+                // Folding the index finger must not drag the pointer across the desktop.
+                if pointer == nil { pointer = CGEvent(source: nil)?.location ?? target }
+                if let point = pointer { publishPointer(point, time: time) }
+                if showWindows { openWindowOverview() }
+                return
+            }
+            pinchEvent = leftPinch.update(ratio: leftRatio,
+                                         eligible: rightRatio > 0.45 && (leftPinch.active || time - lastActionTime >= 0.5),
+                                         time: time)
+            if pinchEvent == .began {
+                pinchPoint = pointer ?? CGEvent(source: nil)?.location ?? target
+            }
+            setGestureBusy(leftPinch.active)
+            if leftPinch.active || leftRatio <= 0.45 { rightPinch.reset() }
+            else { rightEdge = rightPinch.update(ratio: rightRatio, time: time) }
+        }
+        // Preserve the captured point through release, including the frame that
+        // emits a quick single click. A held pinch never emits a preliminary click.
+        if let held = pinchPoint, leftPinch.active || pinchEvent == .singleClick || pinchEvent == .doubleClick { pointer = held }
+        else if let locked = targetLock.resolve(hand: raw, time: time) { pointer = locked }
         else {
             targetOverlay.hide()
             if let old = pointer { pointer = CGPoint(x: old.x + 0.28 * (target.x - old.x), y: old.y + 0.28 * (target.y - old.y)) }
             else { pointer = target }
         }
         guard let point = pointer else { return }
-        if time - lastPointerEvent > 0.05 {
-            emit(["type": "pointer", "x": point.x, "y": point.y, "tracked": true])
-            lastPointerEvent = time
-        }
+        publishPointer(point, time: time)
         guard armed else { return }
         guard AXIsProcessTrusted() else { setArmed(false); return }
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
-        let leftEdge = leftPinch.update(ratio: leftRatio, time: time)
-        let rightEdge = rightPinch.update(ratio: rightRatio, time: time)
-        // If both fingertips are close, treat the pose as ambiguous and click neither.
-        if leftEdge && rightRatio > 0.45 { click("click", at: point) }
-        else if rightEdge && leftRatio > 0.45 { click("right_click", at: point) }
+        if pinchEvent == .singleClick { click(.left, at: point) }
+        else if pinchEvent == .doubleClick { click(.double, at: point) }
+        else if rightEdge && leftRatio > 0.45 { click(.right, at: point) }
+        if !leftPinch.active { pinchPoint = nil }
     }
     func loseHand() {
         preview.rawPoint = nil; preview.joints = [:]
         if tracked { mic.setArmed(false) }
         leftPinch.reset(); rightPinch.reset()
+        fistOpen.reset(); pinchPoint = nil; gestureBusy = false
         targetLock.clear(); lastRawPoint = nil
         targetOverlay.hide()
         pointer = nil
@@ -596,23 +644,33 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             tracked = false
         }
     }
-    func click(_ action: String, at point: CGPoint) {
+    func click(_ action: PointerClickAction, at point: CGPoint) {
         guard armed, tracked, now() - lastHandTime <= 0.4, AXIsProcessTrusted(), now() - lastActionTime >= 0.5 else { return }
-        let button: CGMouseButton = action == "right_click" ? .right : .left
-        let down: CGEventType = action == "right_click" ? .rightMouseDown : .leftMouseDown
-        let up: CGEventType = action == "right_click" ? .rightMouseUp : .leftMouseUp
+        guard let events = makePointerClickEvents(action, at: point) else { return }
+        let button: CGMouseButton = action == .right ? .right : .left
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: button)?.post(tap: .cghidEventTap)
-        for count in 1...1 {
-            let press = CGEvent(mouseEventSource: nil, mouseType: down, mouseCursorPosition: point, mouseButton: button)
-            let release = CGEvent(mouseEventSource: nil, mouseType: up, mouseCursorPosition: point, mouseButton: button)
-            press?.setIntegerValueField(.mouseEventClickState, value: Int64(count))
-            release?.setIntegerValueField(.mouseEventClickState, value: Int64(count))
-            press?.post(tap: .cghidEventTap); release?.post(tap: .cghidEventTap)
-        }
+        for event in events { event.post(tap: .cghidEventTap) }
         lastActionTime = now()
-        emit(["type": "action", "action": action, "source": "gesture", "x": point.x, "y": point.y])
+        emit(["type": "action", "action": action.rawValue, "source": "gesture", "x": point.x, "y": point.y])
         targetLock.clear()
         targetOverlay.hide()
+    }
+    func openWindowOverview() {
+        guard armed, tracked, now() - lastHandTime <= 0.4, AXIsProcessTrusted(),
+              !missionControlPending, now() - lastActionTime >= 0.5 else { return }
+        missionControlPending = true
+        lastActionTime = now()
+        missionControlTransitionUntil = lastActionTime + 0.75
+        showMissionControl { [weak self] error in
+            guard let self = self else { return }
+            self.missionControlPending = false
+            guard !self.closing else { return }
+            if let error = error { self.report("Cannot show windows: \(error.localizedDescription)") }
+            else {
+                emit(["type": "action", "action": "mission_control", "source": "gesture"])
+                self.speechLabel.stringValue = "Windows overview opened. Point and pinch to choose a window."
+            }
+        }
     }
     func readInput() {
         DispatchQueue.global(qos: .utility).async {
@@ -642,7 +700,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if seenIDs.count > 128 { seenIDs.removeFirst() }
         if instruction.action == "none" { return }
         guard let point = instruction.point else { return }
-        guard armed, tracked, now() - lastHandTime <= 0.4, AXIsProcessTrusted(), let anchor = lastRawPoint else { return }
+        guard armed, tracked, acceptsVoiceTarget, now() - lastHandTime <= 0.4, AXIsProcessTrusted(), let anchor = lastRawPoint else { return }
         let lockedAt = now()
         targetLock.hold(point, anchor: anchor, time: lockedAt); pointer = point
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
@@ -656,7 +714,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             speechLabel.stringValue = message
             emit(["type": "error", "request_id": id, "message": message])
         }
-        guard !id.isEmpty, id.count <= 128, armed, tracked,
+        guard !id.isEmpty, id.count <= 128, armed, tracked, acceptsVoiceTarget,
               let x = json["x"] as? NSNumber, let y = json["y"] as? NSNumber,
               CFGetTypeID(x) != CFBooleanGetTypeID(), CFGetTypeID(y) != CFBooleanGetTypeID(),
               x.doubleValue.isFinite, y.doubleValue.isFinite,
@@ -759,8 +817,10 @@ func selfTest() -> Bool {
     check(VoiceAction(json, bounds: bounds) == nil, "out-of-screen target rejected")
     json["x"] = true
     check(VoiceAction(json, bounds: bounds) == nil, "boolean coordinate rejected")
-    json["action"] = "click"
-    check(VoiceAction(json, bounds: bounds) == nil, "voice click rejected")
+    for forbiddenAction in ["click", "double_click", "right_click", "mission_control"] {
+        json["action"] = forbiddenAction
+        check(VoiceAction(json, bounds: bounds) == nil, "gesture actions cannot be supplied by voice")
+    }
     var clipper = SpeechClipper(rate: 1000)
     check(clipper.process([Float](repeating: 0, count: 200)).isEmpty, "silence emits no clip")
     let start = clipper.process([Float](repeating: 0.2, count: 100))
@@ -779,6 +839,13 @@ func selfTest() -> Bool {
     if !overlayTests.failures.isEmpty {
         fputs("Target overlay self-test failed: \(overlayTests.failures.joined(separator: "; "))\n", stderr)
         exit(1)
+    }
+    for result in [handGestureSelfTest(), desktopActionSelfTest()] {
+        tests += result.tests
+        if !result.failures.isEmpty {
+            fputs("Gesture self-test failed: \(result.failures.joined(separator: "; "))\n", stderr)
+            exit(1)
+        }
     }
     emit(["type": "self_test", "passed": true, "tests": tests])
     return true
