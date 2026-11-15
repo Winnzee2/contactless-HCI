@@ -1,12 +1,5 @@
 # 离线验证记录与复现
 
-## Palm-Relative Cursor Pointing
-
-On November 15, 2026, absolute fingertip-to-camera mapping was replaced by the index tip's position in a palm-local coordinate frame. Wrist and middle-knuckle landmarks define the palm axis and scale. Relative coordinates are calculated before independent landmark smoothing, then use existing cursor smoothing and pinch stabilization. The first pose after enabling becomes neutral; Recenter pointing replaces it. Sensitivity remains adjustable. Missing or collapsed palm geometry never falls back to absolute positioning.
-
-All 317 native checks passed, including nine new cases for translation, scale, in-plane rotation, missing/degenerate landmarks, finger deflection, initial centering, and recentering. The Python suite passed 165 tests with two optional integration tests skipped. The native app built successfully. These are deterministic geometry checks, not a physical hand acceptance test. This 2D method does not reconstruct out-of-plane pointing or see occluded landmarks; a comfortable slightly bent neutral finger leaves room to aim both upward and downward.
-
-
 ## Speech Continuity Across Screen Changes
 
 On November 15, 2026, microphone recording was separated from transient hand tracking and gesture preparation. Repeated microphone arming is now idempotent. Typing and scrolling no longer invalidate recognition; deliberate clicks, app/Space switches, pause, and expiration still cancel pending actions. Recognition results wait briefly for hand reacquisition, and late errors from cancelled work cannot replace a newer prompt. Named targets refresh their location before movement, while numbered targets retain their displayed positions.
