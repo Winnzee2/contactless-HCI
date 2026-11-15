@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>Local Control · Offline target board</title>
+  <title>Jarvis · Offline target board</title>
   <style>
     :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #182c3c; background: #f3f6f8; }
     * { box-sizing: border-box; }
@@ -200,7 +200,7 @@
     // Export is an explicit user operation, never a background side effect.
     if (!event.isTrusted) return;
     const report = {
-      format: 'local-control-target-board-v1',
+      format: 'jarvis-target-board-v1',
       session_started_at: sessionStartedAt,
       exported_at: new Date().toISOString(),
       note: 'Browser event evidence does not identify whether a gesture, ordinary mouse, keyboard, or OS injection produced it.',
@@ -217,7 +217,7 @@
     const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], {type: 'application/json'}));
     const link = document.createElement('a');
     link.href = url;
-    link.download = `local-control-events-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    link.download = `jarvis-events-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
     document.body.appendChild(link);
     link.click();
     link.remove();

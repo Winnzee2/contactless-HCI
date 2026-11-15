@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INTERFACE="${1:-en0}"
 REPORT="$ROOT/.build/verification/wifi-off"
-NATIVE="$ROOT/.build/LocalControl.app/Contents/MacOS/GestureCamera"
+NATIVE="$ROOT/.build/JarvisEngine.app/Contents/MacOS/GestureCamera"
 mkdir -p "$REPORT"
 ORIGINAL="$(/usr/sbin/networksetup -getairportpower "$INTERFACE")"
 printf '%s\n' "$ORIGINAL" > "$REPORT/wifi-before.txt"

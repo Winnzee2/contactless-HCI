@@ -1,4 +1,4 @@
-# Local Control — Offline Hand Mouse and Voice Targeting
+# Jarvis — Offline Hand Mouse and Voice Targeting
 
 On an Apple Silicon Mac, move the pointer with your index finger, pinch to click, and name a nearby visible control to target it across applications. Camera recognition, speech transcription, accessibility inspection, screen text recognition, and Bonsai inference all run locally. No browser extension or integration with a particular website is required.
 
@@ -27,10 +27,10 @@ The targeting flow is **microphone → Argmax transcription → Bonsai target ma
 
 ## Launch
 
-On the Mac with models and runtimes already prepared, double-click **[Local Control.app](<.build/Local Control.app>)** in Finder. The `.build` folder is hidden; press `⌘⇧.` in the project folder to show it, or run this command from the project directory:
+On the Mac with models and runtimes already prepared, double-click **[Jarvis.app](<.build/Jarvis.app>)** in Finder. The `.build` folder is hidden; press `⌘⇧.` in the project folder to show it, or run this command from the project directory:
 
 ```bash
-open ".build/Local Control.app"
+open ".build/Jarvis.app"
 ```
 
 Alternatively, launch from the command line:
@@ -39,11 +39,11 @@ Alternatively, launch from the command line:
 python3 desktop.py
 ```
 
-You can also double-click **[Launch Local Control.command](<Launch Local Control.command>)** in the project folder. The launcher builds the native helper if it is missing and starts the installed local Bonsai service when needed. It does not download missing models.
+You can also double-click **[Launch Jarvis.command](<Launch Jarvis.command>)** in the project folder. The launcher builds the native helper if it is missing and starts the installed local Bonsai service when needed. It does not download missing models.
 
 The `.app` is a Finder launcher for the prepared project. Keep the project files, Argmax models, and Bonsai/MLX runtime in their existing locations. Copying the `.app` alone to another Mac is not sufficient. If you move the project directory, run `bash scripts/build_product.sh` again.
 
-On first use, open **System Settings → Privacy & Security** and grant permissions to Local Control or the terminal identified by macOS:
+On first use, open **System Settings → Privacy & Security** and grant permissions to Jarvis or the terminal identified by macOS:
 
 - **Camera**: recognize your hand.
 - **Microphone**: capture speech for transcription.
@@ -170,7 +170,7 @@ Run API examples with `PYTHONPATH=src python3 your_script.py`. `WhisperKitStream
 ```bash
 python3 -m unittest discover tests -v
 STT_INTEGRATION=1 python3 -m unittest discover tests -v
-.build/LocalControl.app/Contents/MacOS/GestureCamera --self-test
+.build/JarvisEngine.app/Contents/MacOS/GestureCamera --self-test
 python3 scripts/test_product_offline.py
 ```
 
@@ -209,7 +209,7 @@ If recognition finishes while your hand is missing, the app waits up to five sec
 
 ### Jarvis notepad
 
-Choose **Notes folder…** in the main window (or in the notepad) to select where .txt notes are saved. The folder is remembered. Until you choose one, notes use ~/Documents/Local Control Notes.
+Choose **Notes folder…** in the main window (or in the notepad) to select where .txt notes are saved. The folder is remembered. Until you choose one, notes use ~/Documents/Jarvis Notes.
 
 With voice control enabled, say **“Hey Jarvis”**. A small floating notepad opens; speak your note naturally. You can include the note in the same utterance as the wake phrase. Speech is transcribed locally with Argmax, and successive speech blocks are collected into one note. During dictation, words such as “close window” are note text and never execute commands.
 
@@ -224,3 +224,9 @@ Say **“switch windows”** (or **“switch apps”**) to send a complete **Cmd
 The upper-right speech pane includes a live **HAND** footer: pointing, pinch preparation, left/right pinch, scrolling, target lock, tracking loss, and paused state. Successful clicks briefly show Left click, Right click, or Double click. Cyan indicates active hand control; muted text indicates paused or missing tracking. Hand feedback does not replace the recognized speech.
 
 The speech pane also shows the **full live webcam preview with a hand skeleton overlaid**. The camera image and tracked joints share the same mirrored, aspect-fit coordinates; the full frame stays visible without cropping. Cyan joint markers and connecting bones follow the pose, with a white index-tip marker. Missing landmarks are omitted, and tracking loss clears the skeleton while the camera preview continues. The preview uses the existing capture stream and does not record video.
+
+The upper-right pane includes a **Use cheatsheet** for gestures, voice navigation, targeting, dictation, and keyboard controls. Hovering over the pane fades it to 22% opacity; it remains click-through and returns to normal when the pointer leaves.
+
+The product is named **Jarvis**. Existing macOS bundle identifiers and preference keys are retained for upgrade compatibility. Existing note-folder selections are preserved; an existing legacy notes folder is reused, while new installations default to Documents/Jarvis Notes.
+
+Product website: https://jarvis.kuzeze.chatgpt.site · Source: https://github.com/Winnzee2/Jarvis

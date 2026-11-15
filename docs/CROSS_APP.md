@@ -1,6 +1,6 @@
 # Cross-Application Targeting
 
-Local Control uses system mouse events and local screen discovery. Target discovery does not depend on the demo board, website selectors, browser JavaScript, a browser extension, or an application whitelist.
+Jarvis uses system mouse events and local screen discovery. Target discovery does not depend on the demo board, website selectors, browser JavaScript, a browser extension, or an application whitelist.
 
 Point near the intended control, say its visible label or accessible name, and pinch to click after the pointer reaches it. Briefly pinch thumb and middle finger, then release for one left click; repeat the pinch and release quickly at the same position for a natural double-click. Thumb and ring finger perform a right click. The pointer stays at the pinch position while you hold it, and holding a pinch fires no click until release.
 
@@ -74,7 +74,7 @@ python3 scripts/test_cross_app.py \
 Adjust the point and label to your current window layout. The script requires an already-running local Bonsai service. It captures the current region and asks the actual model to select a target. It never moves the pointer, clicks, opens a camera or microphone, or changes Wi-Fi. Failure replaces any previous success report. A separate native diagnostic can inspect candidates without contacting the model:
 
 ```bash
-.build/LocalControl.app/Contents/MacOS/GestureCamera --targets-at 480 220
+.build/JarvisEngine.app/Contents/MacOS/GestureCamera --targets-at 480 220
 ```
 
 Normal runtime does not save these diagnostic snapshots. Explicit diagnostics can contain visible screen labels, so keep their output local when it includes personal content.

@@ -219,7 +219,7 @@ func captureScreenRegion(_ region: CGRect) async throws -> CGImage {
     let screen = CGDisplayBounds(displayID)
     let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
     guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
-        throw NSError(domain: "LocalControl", code: 5, userInfo: [NSLocalizedDescriptionKey: "Primary display is unavailable for local text recognition."])
+        throw NSError(domain: "Jarvis", code: 5, userInfo: [NSLocalizedDescriptionKey: "Primary display is unavailable for local text recognition."])
     }
     let filter = SCContentFilter(display: display, excludingWindows: content.windows.filter { $0.owningApplication?.processID == getpid() })
     let config = SCStreamConfiguration()
@@ -237,7 +237,7 @@ final class MicrophoneCapture {
     var onSpeechStart: (() -> Void)?
     var onSpeechEnd: (() -> Void)?
     private let engine = AVAudioEngine()
-    private let queue = DispatchQueue(label: "local.control.audio")
+    private let queue = DispatchQueue(label: "jarvis.audio")
     private var armed = false
     private var clipper = SpeechClipper(rate: 48000)
     private var installed = false
@@ -255,7 +255,7 @@ final class MicrophoneCapture {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw NSError(domain: "LocalControl", code: 1, userInfo: [NSLocalizedDescriptionKey: "No microphone input is available."])
+            throw NSError(domain: "Jarvis", code: 1, userInfo: [NSLocalizedDescriptionKey: "No microphone input is available."])
         }
         queue.sync { self.clipper = SpeechClipper(rate: format.sampleRate) }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
@@ -384,8 +384,8 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     let useVoice: Bool
     private let captionImageContext = CIContext(options: [.cacheIntermediates: false])
     let session = AVCaptureSession()
-    let sessionQueue = DispatchQueue(label: "local.control.session")
-    let frameQueue = DispatchQueue(label: "local.control.vision")
+    let sessionQueue = DispatchQueue(label: "jarvis.session")
+    let frameQueue = DispatchQueue(label: "jarvis.vision")
     let request = VNDetectHumanHandPoseRequest()
     let mic = MicrophoneCapture()
     let notes = NotesPanel()
@@ -469,7 +469,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func makeWindow() {
         window = ControlWindow(contentRect: NSRect(x: 0, y: 0, width: 920, height: 760),
                                styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "Local Control · Hand + Voice"
+        window.title = "Jarvis · Hand + Voice"
         window.isRestorable = false
         window.minSize = NSSize(width: 760, height: 680)
         window.appearance = NSAppearance(named: .darkAqua)
@@ -480,7 +480,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         root.wantsLayer = true
         root.layer?.backgroundColor = NSColor(srgbRed: 0.035, green: 0.045, blue: 0.065, alpha: 1).cgColor
         window.contentView = root
-        let brand = NSTextField(labelWithString: "LOCAL CONTROL")
+        let brand = NSTextField(labelWithString: "JARVIS")
         brand.font = .monospacedSystemFont(ofSize: 13, weight: .semibold)
         brand.textColor = .systemCyan
         let tagline = NSTextField(labelWithString: "A little movement. A few words. Full control.")
@@ -618,7 +618,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
                 DispatchQueue.main.async {
                     if granted { self?.setupCamera() }
-                    else { self?.report("Camera access denied. Enable Local Control or your terminal in System Settings → Privacy & Security → Camera.") }
+                    else { self?.report("Camera access denied. Enable Jarvis or your terminal in System Settings → Privacy & Security → Camera.") }
                 }
             }
         default: report("Camera permission is unavailable. Enable it in System Settings → Privacy & Security → Camera, then restart.")
@@ -629,14 +629,14 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             do {
                 let devices = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera], mediaType: .video, position: .unspecified).devices
                 guard devices.indices.contains(self.cameraIndex) else {
-                    throw NSError(domain: "LocalControl", code: 2, userInfo: [NSLocalizedDescriptionKey: "Camera index \(self.cameraIndex) is unavailable; detected \(devices.count) camera(s)."])
+                    throw NSError(domain: "Jarvis", code: 2, userInfo: [NSLocalizedDescriptionKey: "Camera index \(self.cameraIndex) is unavailable; detected \(devices.count) camera(s)."])
                 }
                 let input = try AVCaptureDeviceInput(device: devices[self.cameraIndex])
                 self.session.beginConfiguration()
                 if self.session.canSetSessionPreset(.hd1280x720) { self.session.sessionPreset = .hd1280x720 }
                 guard self.session.canAddInput(input) else {
                     self.session.commitConfiguration()
-                    throw NSError(domain: "LocalControl", code: 3, userInfo: [NSLocalizedDescriptionKey: "Cannot attach the selected camera."])
+                    throw NSError(domain: "Jarvis", code: 3, userInfo: [NSLocalizedDescriptionKey: "Cannot attach the selected camera."])
                 }
                 self.session.addInput(input)
                 let output = AVCaptureVideoDataOutput()
@@ -645,7 +645,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 output.setSampleBufferDelegate(self, queue: self.frameQueue)
                 guard self.session.canAddOutput(output) else {
                     self.session.commitConfiguration()
-                    throw NSError(domain: "LocalControl", code: 4, userInfo: [NSLocalizedDescriptionKey: "Cannot attach camera frame output."])
+                    throw NSError(domain: "Jarvis", code: 4, userInfo: [NSLocalizedDescriptionKey: "Cannot attach camera frame output."])
                 }
                 self.session.addOutput(output)
                 if let connection = output.connection(with: .video), connection.isVideoMirroringSupported {
@@ -705,7 +705,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             guard AXIsProcessTrusted() else {
                 let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
                 _ = AXIsProcessTrustedWithOptions(options)
-                report("Allow Accessibility for Local Control or your terminal in System Settings, then enable pointer again.")
+                report("Allow Accessibility for Jarvis or your terminal in System Settings, then enable pointer again.")
                 return
             }
         }
@@ -1430,7 +1430,7 @@ func ocrSelfTest() throws {
     let size = CGSize(width: 640, height: 180)
     guard let context = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8,
                                   bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
-        throw NSError(domain: "LocalControl", code: 6, userInfo: [NSLocalizedDescriptionKey: "Cannot allocate OCR test image."])
+        throw NSError(domain: "Jarvis", code: 6, userInfo: [NSLocalizedDescriptionKey: "Cannot allocate OCR test image."])
     }
     context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(CGRect(origin: .zero, size: size))
     let attributes: [NSAttributedString.Key: Any] = [
@@ -1442,17 +1442,17 @@ func ocrSelfTest() throws {
         context.textPosition = CGPoint(x: 30 + index * 210, y: 75)
         CTLineDraw(CTLineCreateWithAttributedString(text), context)
     }
-    guard let image = context.makeImage() else { throw NSError(domain: "LocalControl", code: 7) }
+    guard let image = context.makeImage() else { throw NSError(domain: "Jarvis", code: 7) }
     let targets = try recognizeTargets(image, region: CGRect(origin: CGPoint(x: 100, y: 200), size: size))
     guard targets.contains(where: { ($0["label"] as? String)?.lowercased().contains("codex") == true }) else {
-        throw NSError(domain: "LocalControl", code: 8, userInfo: [NSLocalizedDescriptionKey: "OCR did not recognize the generated Codex label."])
+        throw NSError(domain: "Jarvis", code: 8, userInfo: [NSLocalizedDescriptionKey: "OCR did not recognize the generated Codex label."])
     }
     emit(["type": "ocr_self_test", "passed": true, "targets": targets])
 }
 
 // Hardware checks deliberately avoid moving the cursor or injecting clicks.
 final class CameraProbe: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
-    let frameQueue = DispatchQueue(label: "local.control.camera.probe")
+    let frameQueue = DispatchQueue(label: "jarvis.camera.probe")
     let done = DispatchSemaphore(value: 0)
     var frameCount = 0
     var handFrames = 0
@@ -1472,11 +1472,11 @@ final class CameraProbe: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate 
 
 func cameraSelfTest(index: Int) throws {
     guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
-        throw NSError(domain: "LocalControl", code: 10, userInfo: [NSLocalizedDescriptionKey: "Camera permission is required before the hardware check."])
+        throw NSError(domain: "Jarvis", code: 10, userInfo: [NSLocalizedDescriptionKey: "Camera permission is required before the hardware check."])
     }
     let devices = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera], mediaType: .video, position: .unspecified).devices
     guard devices.indices.contains(index) else {
-        throw NSError(domain: "LocalControl", code: 11, userInfo: [NSLocalizedDescriptionKey: "Selected camera is unavailable."])
+        throw NSError(domain: "Jarvis", code: 11, userInfo: [NSLocalizedDescriptionKey: "Selected camera is unavailable."])
     }
     let session = AVCaptureSession()
     let input = try AVCaptureDeviceInput(device: devices[index])
@@ -1489,10 +1489,10 @@ func cameraSelfTest(index: Int) throws {
     if session.canSetSessionPreset(.hd1280x720) { session.sessionPreset = .hd1280x720 }
     guard session.canAddInput(input), session.canAddOutput(output) else {
         session.commitConfiguration()
-        throw NSError(domain: "LocalControl", code: 12, userInfo: [NSLocalizedDescriptionKey: "Camera test could not create a capture session."])
+        throw NSError(domain: "Jarvis", code: 12, userInfo: [NSLocalizedDescriptionKey: "Camera test could not create a capture session."])
     }
     session.addInput(input); session.addOutput(output); session.commitConfiguration()
-    let sessionQueue = DispatchQueue(label: "local.control.camera.probe.session")
+    let sessionQueue = DispatchQueue(label: "jarvis.camera.probe.session")
     sessionQueue.sync { session.startRunning() }
     _ = probe.done.wait(timeout: .now() + 8)
     sessionQueue.sync { session.stopRunning() }
@@ -1505,13 +1505,13 @@ func cameraSelfTest(index: Int) throws {
     }
     emit(result)
     if result["passed"] as? Bool != true {
-        throw NSError(domain: "LocalControl", code: 13, userInfo: [NSLocalizedDescriptionKey: "No usable camera frames or local hand inference failed."])
+        throw NSError(domain: "Jarvis", code: 13, userInfo: [NSLocalizedDescriptionKey: "No usable camera frames or local hand inference failed."])
     }
 }
 
 func screenSelfTest(outputURL: URL? = nil) async throws {
     guard CGPreflightScreenCaptureAccess() else {
-        throw NSError(domain: "LocalControl", code: 14, userInfo: [NSLocalizedDescriptionKey: "Screen Recording permission is required before the screen check."])
+        throw NSError(domain: "Jarvis", code: 14, userInfo: [NSLocalizedDescriptionKey: "Screen Recording permission is required before the screen check."])
     }
     let screen = CGDisplayBounds(CGMainDisplayID())
     let point = CGEvent(source: nil)?.location ?? CGPoint(x: screen.midX, y: screen.midY)
@@ -1522,11 +1522,11 @@ func screenSelfTest(outputURL: URL? = nil) async throws {
     let image = try await captureScreenRegion(region)
     if let outputURL {
         guard let destination = CGImageDestinationCreateWithURL(outputURL as CFURL, "public.png" as CFString, 1, nil) else {
-            throw NSError(domain: "LocalControl", code: 15, userInfo: [NSLocalizedDescriptionKey: "Cannot create screen diagnostic PNG."])
+            throw NSError(domain: "Jarvis", code: 15, userInfo: [NSLocalizedDescriptionKey: "Cannot create screen diagnostic PNG."])
         }
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else {
-            throw NSError(domain: "LocalControl", code: 16, userInfo: [NSLocalizedDescriptionKey: "Cannot save screen diagnostic PNG."])
+            throw NSError(domain: "Jarvis", code: 16, userInfo: [NSLocalizedDescriptionKey: "Cannot save screen diagnostic PNG."])
         }
     }
     let targets = try recognizeTargets(image, region: region)
@@ -1538,10 +1538,10 @@ func screenSelfTest(outputURL: URL? = nil) async throws {
 func targetsDiagnostic(point: CGPoint) async throws {
     let screen = CGDisplayBounds(CGMainDisplayID())
     guard point.x.isFinite, point.y.isFinite, screen.contains(point) else {
-        throw NSError(domain: "LocalControl", code: 20, userInfo: [NSLocalizedDescriptionKey: "Target coordinates must be on the primary display."])
+        throw NSError(domain: "Jarvis", code: 20, userInfo: [NSLocalizedDescriptionKey: "Target coordinates must be on the primary display."])
     }
     guard AXIsProcessTrusted() || CGPreflightScreenCaptureAccess() else {
-        throw NSError(domain: "LocalControl", code: 21, userInfo: [NSLocalizedDescriptionKey: "Grant Accessibility or Screen Recording before inspecting screen targets."])
+        throw NSError(domain: "Jarvis", code: 21, userInfo: [NSLocalizedDescriptionKey: "Grant Accessibility or Screen Recording before inspecting screen targets."])
     }
     let width = min(720, screen.width), height = min(420, screen.height)
     let region = CGRect(x: clamp(point.x - width / 2, screen.minX, screen.maxX - width),
@@ -1616,7 +1616,7 @@ struct GestureCameraProgram {
         let menu = NSMenu()
         let item = NSMenuItem()
         let submenu = NSMenu()
-        submenu.addItem(withTitle: "Quit Local Control", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        submenu.addItem(withTitle: "Quit Jarvis", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.submenu = submenu; menu.addItem(item); app.mainMenu = menu
         withExtendedLifetime(delegate) { app.run() }
     }

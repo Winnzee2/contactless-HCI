@@ -1,10 +1,16 @@
 # 离线验证记录与复现
 
+## Jarvis Rename, Cheatsheet, and Hover Transparency
+
+Renamed the product, Finder launcher, documentation, demos, website, and GitHub repository to Jarvis. Existing bundle identifiers and preferences remain stable; existing notes folders are preserved. Both app bundles rebuilt successfully. All 328 native checks passed; Python discovery ran 188 tests with 186 passes and two optional skips. The renamed native app retained Camera, Microphone, Accessibility, and Screen Recording authorization in its readiness check.
+
+A native preview verified the full cheatsheet layout, click-through behavior, persistent caption, and unchanged focus. Moving the real pointer into the panel produced 22% opacity; moving it out restored full opacity. The screenshot uses a synthetic camera frame, not a new physical-hand trial. Evidence is in ignored `.build/verification/jarvis/`.
+
 ## Webcam Pane and Marketing Site
 
-The native build and all 328 native checks passed. A synthetic camera frame with asymmetric corner markers verified full-frame horizontal mirroring behind the hand skeleton. Native panel probes passed for click-through behavior, unchanged focus, and persistence through tracking loss and pause. The camera feed is downsampled for display only; inference still receives full-resolution frames. Local Control was restarted directly and enabled. No new physical hand-accuracy trial is claimed.
+The native build and all 328 native checks passed. A synthetic camera frame with asymmetric corner markers verified full-frame horizontal mirroring behind the hand skeleton. Native panel probes passed for click-through behavior, unchanged focus, and persistence through tracking loss and pause. The camera feed is downsampled for display only; inference still receives full-resolution frames. Jarvis was restarted directly and enabled. No new physical hand-accuracy trial is claimed.
 
-The marketing website passed WebKit checks for desktop/mobile horizontal fit, walkthrough interaction, and the source ZIP link. Both viewport layouts were visually inspected. ChatGPT Sites confirmed successful owner-private deployment at https://local-control-contactless.kuzeze.chatgpt.site. Render artifacts are in ignored `.build/verification/marketing/` and `.build/verification/camera-pane/`.
+The marketing website passed WebKit checks for desktop/mobile horizontal fit, walkthrough interaction, and the source ZIP link. Both viewport layouts were visually inspected. ChatGPT Sites confirmed successful owner-private deployment at https://jarvis.kuzeze.chatgpt.site. Render artifacts are in ignored `.build/verification/marketing/` and `.build/verification/camera-pane/`.
 
 ## The Meridian Offline News Demo
 
@@ -53,7 +59,7 @@ The Python suite passed 185 tests (187 discovered, two optional integration test
 
 ## Offline Jarvis Notepad
 
-On November 15, 2026, “Hey Jarvis” gained a dedicated dictation route. A floating monospaced notepad collects consecutive Argmax transcripts without passing them to Bonsai target selection or navigation. Five seconds of microphone silence, “Bye Jarvis,” or the Stop recording button ends recording; pending audio finishes transcription before saving a unique UTF-8 .txt file. The folder picker remembers its selection, with Documents/Local Control Notes as the initial default.
+On November 15, 2026, “Hey Jarvis” gained a dedicated dictation route. A floating monospaced notepad collects consecutive Argmax transcripts without passing them to Bonsai target selection or navigation. Five seconds of microphone silence, “Bye Jarvis,” or the Stop recording button ends recording; pending audio finishes transcription before saving a unique UTF-8 .txt file. The folder picker remembers its selection, with Documents/Jarvis Notes as the initial default.
 
 Validation passed 184 Python tests (186 discovered, two optional integration tests skipped), 309 native self-test checks, and a real cached Argmax → worker → coordinator replay using synthesized speech. That replay produced the note and no cursor/window action. Argmax rendered “Bye Jarvis” as “buy Jarvis,” so a narrowly scoped end-of-utterance homophone was added and verified. Inference uses the existing OS sandbox denying network access; no new physical microphone or Wi-Fi-off demonstration was performed.
 
@@ -257,8 +263,8 @@ python3 -m unittest discover tests
 原生算法与 OCR 的独立检查：
 
 ```bash
-.build/LocalControl.app/Contents/MacOS/GestureCamera --self-test
-.build/LocalControl.app/Contents/MacOS/GestureCamera --ocr-self-test
+.build/JarvisEngine.app/Contents/MacOS/GestureCamera --self-test
+.build/JarvisEngine.app/Contents/MacOS/GestureCamera --ocr-self-test
 ```
 
 ## 环境要求
@@ -270,12 +276,12 @@ python3 -m unittest discover tests
 - 本机 Bonsai-2 2B 权重及 `scripts/start_bonsai.sh` 可发现的兼容 MLX 运行时；
 - macOS 自带的 `say`（Samantha 语音）、`afconvert` 和 `sandbox-exec`。
 
-`scripts/build_product.sh` 同时生成原生辅助程序 `.build/LocalControl.app` 和可双击的启动器 `.build/Local Control.app`。后者从记录的项目路径启动 `desktop.py`，需要保留项目、本地模型和用户缓存中的 MLX 运行时；它不是独立可转移的完整应用包。移动项目后重新构建。
+`scripts/build_product.sh` 同时生成原生辅助程序 `.build/JarvisEngine.app` 和可双击的启动器 `.build/Jarvis.app`。后者从记录的项目路径启动 `desktop.py`，需要保留项目、本地模型和用户缓存中的 MLX 运行时；它不是独立可转移的完整应用包。移动项目后重新构建。
 
-已实际双击启动器，确认摄像头预览和麦克风初始化成功；也通过命令行启动实测了手部骨架显示、暂停按钮和退出清理。独立 `.app` 起初缺少有效的辅助功能授权；从系统设置移除旧条目并添加准确的 `.build/Local Control.app` 后，已验证窗口可进入 ENABLED 并再次暂停。
+已实际双击启动器，确认摄像头预览和麦克风初始化成功；也通过命令行启动实测了手部骨架显示、暂停按钮和退出清理。独立 `.app` 起初缺少有效的辅助功能授权；从系统设置移除旧条目并添加准确的 `.build/Jarvis.app` 后，已验证窗口可进入 ENABLED 并再次暂停。
 
 随后在系统设置开启该启动器的屏幕录制权限并重新启动，实际运行取得了非空屏幕 OCR 候选并发起 Bonsai 请求；窗口显示 `No confident match. Say visible label again.`，没有屏幕权限错误。这证明启动器的屏幕识别和本地模型路径已运行；该次检查没有证明启动器会话中的正向目标定位成功。当前程序保持暂停状态。
 
-macOS 会按启动来源分别授权，不能把命令行环境中四项权限已通过的结果当作 `.app` 已全部授权。首次使用或重新构建后，按系统提示为对应的 Local Control 应用授权并重启。该权限属于系统设置，应用不会修改权限数据库来绕过它。
+macOS 会按启动来源分别授权，不能把命令行环境中四项权限已通过的结果当作 `.app` 已全部授权。首次使用或重新构建后，按系统提示为对应的 Jarvis 应用授权并重启。该权限属于系统设置，应用不会修改权限数据库来绕过它。
 
 受限的开发沙箱可能阻止 CoreML/Metal 或嵌套 macOS sandbox 初始化。此时在普通终端运行以上命令，不要把沙箱限制误报为模型缺失。

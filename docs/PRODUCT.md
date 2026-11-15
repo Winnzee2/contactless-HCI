@@ -1,4 +1,4 @@
-# Local Control 产品说明
+# Jarvis 产品说明
 
 ## 使用目标
 
@@ -8,7 +8,7 @@ English: Hand gestures control movement and clicking. Speech names a nearby visi
 
 ## 核心交互
 
-1. 在 Finder 双击项目中的 [Local Control.app](<../.build/Local Control.app>)；也可运行 `open ".build/Local Control.app"`、`python3 desktop.py` 或双击 `Launch Local Control.command`。命令均从项目目录执行。
+1. 在 Finder 双击项目中的 [Jarvis.app](<../.build/Jarvis.app>)；也可运行 `open ".build/Jarvis.app"`、`python3 desktop.py` 或双击 `Launch Jarvis.command`。命令均从项目目录执行。
 2. 授予摄像头、麦克风、辅助功能、屏幕录制权限；必要时重启程序。
 3. 初始处于 PAUSED。在控制窗口点击 Enable pointer，或按空格开启。
 4. 伸出食指，把指针移到要操作的区域附近。
@@ -20,7 +20,7 @@ English: Hand gestures control movement and clicking. Speech names a nearby visi
 
 捏合需要先松开再重新合拢，避免持续保持同一手势时重复点击。长捏合只发出一组双击，不会先多发一次单击；一直保持不会继续重复双击。握拳后张开手也有短暂冷却，不能靠一直张手反复触发。暂停或失去可靠手部追踪后，立即取消未完成的手势、清除锁定并拒绝延迟返回的旧定位结果，3 秒保护期也不例外。
 
-English: Open `.build/Local Control.app`, grant the four macOS permissions, and enable the pointer in the preview window. If the app has not been built, run `bash scripts/build_product.sh` after preparing the local dependencies and models. `python3 desktop.py` remains the command-line entry point.
+English: Open `.build/Jarvis.app`, grant the four macOS permissions, and enable the pointer in the preview window. If the app has not been built, run `bash scripts/build_product.sh` after preparing the local dependencies and models. `python3 desktop.py` remains the command-line entry point.
 
 English gesture guide: briefly pinch thumb and middle finger, then release for one left click; hold that pinch for about 0.7 seconds for one double-click. Release before another click. Thumb and ring finger still perform a right click. Hold a fist briefly, then fully open the hand to display the current desktop's windows in Mission Control. These gestures do not require speech or a network connection.
 
@@ -59,7 +59,7 @@ English gesture guide: briefly pinch thumb and middle finger, then release for o
 - 运行期间不下载模型，不调用云端转写或远程语言模型，不加载浏览器 CDN。
 - Bonsai 服务只监听本机回环地址；Wi-Fi 关闭不影响这种进程间通信。
 - 不同设备上的首次安装仍需要事先取得依赖，或从准备好的设备本地转移。
-- `.build/Local Control.app` 启动的是当前已准备的项目。模型和运行时保留在项目或用户缓存目录中；这不是可以单独复制到另一台 Mac 的完整安装包。项目移动后需要重新构建启动器。
+- `.build/Jarvis.app` 启动的是当前已准备的项目。模型和运行时保留在项目或用户缓存目录中；这不是可以单独复制到另一台 Mac 的完整安装包。项目移动后需要重新构建启动器。
 
 ## 当前验证状态
 

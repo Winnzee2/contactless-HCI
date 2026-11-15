@@ -225,12 +225,13 @@ private final class VoiceCaptionView: NSView {
         footer.move(to: CGPoint(x: 16, y: bounds.height - 123)); footer.line(to: CGPoint(x: bounds.width - 16, y: bounds.height - 123))
         NSColor.white.withAlphaComponent(0.1).setStroke(); footer.lineWidth = 0.5; footer.stroke()
         let handColor = handActive ? NSColor(srgbRed: 0.15, green: 0.9, blue: 1, alpha: 0.95) : muted
+        let cheatHeight: CGFloat = 250
         handColor.setFill()
-        NSBezierPath(ovalIn: CGRect(x: 16, y: 16, width: 5, height: 5)).fill()
-        ("HAND" as NSString).draw(at: CGPoint(x: 29, y: 12),
+        NSBezierPath(ovalIn: CGRect(x: 16, y: cheatHeight + 16, width: 5, height: 5)).fill()
+        ("HAND" as NSString).draw(at: CGPoint(x: 29, y: cheatHeight + 12),
             withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 9, weight: .medium),
                              .foregroundColor: muted, .kern: 1])
-        let area = CGRect(x: 16, y: 38, width: bounds.width - 32, height: bounds.height - 174)
+        let area = CGRect(x: 16, y: cheatHeight + 38, width: bounds.width - 32, height: max(48, bounds.height - 174 - cheatHeight))
         let scale = min(area.width / videoSize.width, area.height / videoSize.height)
         let imageRect = CGRect(x: area.midX - videoSize.width * scale / 2,
                                y: area.midY - videoSize.height * scale / 2,
@@ -280,9 +281,36 @@ private final class VoiceCaptionView: NSView {
                 withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
                                  .foregroundColor: muted])
         }
-        (handStatus as NSString).draw(in: CGRect(x: 81, y: 10, width: bounds.width - 97, height: 16),
+        (handStatus as NSString).draw(in: CGRect(x: 81, y: cheatHeight + 10, width: bounds.width - 97, height: 16),
             withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
                              .foregroundColor: handColor, .paragraphStyle: paragraph])
+        let rule = NSBezierPath()
+        rule.move(to: CGPoint(x: 16, y: cheatHeight)); rule.line(to: CGPoint(x: bounds.width - 16, y: cheatHeight))
+        NSColor.white.withAlphaComponent(0.15).setStroke(); rule.lineWidth = 0.5; rule.stroke()
+        ("USE CHEATSHEET" as NSString).draw(at: CGPoint(x: 16, y: cheatHeight - 22),
+            withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold), .foregroundColor: muted, .kern: 1])
+        let rows = [
+            "Index finger → move pointer",
+            "Thumb + middle → release to left-click",
+            "Two quick left pinches → double-click",
+            "Thumb + ring → right-click",
+            "Hold thumb + pinky + move ↑↓ → scroll",
+            "Say target name → aim; pinch → click",
+            "Say a number → choose; ‘cancel’ → dismiss",
+            "‘Last page’ → back in browser / Finder",
+            "‘Tab left’ / ‘tab right’ / ‘close tab’",
+            "‘Close window’ / ‘change window’ (same app)",
+            "‘Switch windows’ → Cmd+Tab (apps)",
+            "‘All windows’ → overview on / off",
+            "‘Hey Jarvis’ → note; ‘Bye Jarvis’ → save",
+            "5s silence → save note; Esc → pause",
+            "In app: Space → enable/pause; Q → quit"
+        ]
+        for (index, row) in rows.enumerated() {
+            (row as NSString).draw(at: CGPoint(x: 16, y: cheatHeight - 42 - CGFloat(index) * 14),
+                withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+                                 .foregroundColor: NSColor.white.withAlphaComponent(0.78)])
+        }
     }
 }
 
@@ -302,6 +330,22 @@ final class SensingOverlay {
     private var cameraImage: CGImage?
     private var handVideoSize = CGSize(width: 1280, height: 720)
     private var suspensions = 0
+    private var hoverTimer: Timer?
+
+    init() {
+        // The panel ignores mouse events, so poll the real pointer rather than
+        // adding a tracking view that would intercept clicks on underlying apps.
+        hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            self?.updateHoverOpacity()
+        }
+    }
+    deinit { hoverTimer?.invalidate() }
+    private func updateHoverOpacity() {
+        guard let panel = captionPanel else { return }
+        let alpha: CGFloat = panel.frame.contains(NSEvent.mouseLocation) ? 0.22 : 1
+        guard abs(panel.alphaValue - alpha) > 0.01 else { return }
+        panel.alphaValue = alpha
+    }
 
     private func panel(view: NSView) -> TargetOverlayPanel {
         let panel = TargetOverlayPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
@@ -399,13 +443,14 @@ final class SensingOverlay {
         } else { ringPanel?.orderOut(nil) }
         if !transcript.isEmpty {
             let usable = screen.visibleFrame.insetBy(dx: 18, dy: 18)
-            let width = min(320, usable.width), height = min(336, usable.height)
+            let width = min(360, usable.width), height = min(586, usable.height)
             let frame = CGRect(x: usable.maxX - width, y: usable.maxY - height, width: width, height: height)
             if captionPanel == nil { captionPanel = panel(view: VoiceCaptionView()) }
             captionPanel?.setFrame(frame, display: false)
             if let view = captionPanel?.contentView as? VoiceCaptionView {
                 view.frame = CGRect(origin: .zero, size: frame.size); view.text = transcript; view.heading = heading; view.detail = detail; view.handStatus = handStatus; view.handActive = handActive; view.handJoints = handJoints; view.videoSize = handVideoSize; view.cameraImage = cameraImage; view.needsDisplay = true
             }
+            updateHoverOpacity()
             if captionPanel?.isVisible == false { captionPanel?.orderFrontRegardless() }
         } else { captionPanel?.orderOut(nil) }
     }

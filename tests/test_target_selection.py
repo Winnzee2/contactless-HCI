@@ -109,7 +109,7 @@ class TestTargetSelection(unittest.TestCase):
         client = BonsaiClient('http://127.0.0.1:1234', 'bonsai-local')
         response = {"choices":[{"message":{"content":'{"target_id":"0"}'}}]}
         with patch.object(client, '_request', return_value=response):
-            self.assertIsNone(client.select_target('My hand', [{"id":"title","label":"Local Control · Hand + Voice"}]).target_id)
+            self.assertIsNone(client.select_target('My hand', [{"id":"title","label":"Jarvis · Hand + Voice"}]).target_id)
             self.assertEqual(client.select_target('打开Codex那个标签', [{"id":"a","label":"Codex"}]).target_id, 'a')
             self.assertEqual(client.select_target('open the Safari tab', [{"id":"b","label":"Safari"}]).target_id, 'b')
             self.assertIsNone(client.select_target('cat', [{"id":"b","label":"category"}]).target_id)
@@ -261,7 +261,7 @@ class TestTargetSelection(unittest.TestCase):
 
     def test_no_named_candidate_abstains_without_model_inference(self):
         client = BonsaiClient('http://127.0.0.1:1234', 'bonsai-local')
-        options = [{"id": "a", "label": "Local Control · Hand + Voice"},
+        options = [{"id": "a", "label": "Jarvis · Hand + Voice"},
                    {"id": "b", "label": "1 Codex"}]
         with patch.object(client, '_request') as request:
             for transcript in ("My hand", "go to Missing", "I talked about Codex yesterday"):

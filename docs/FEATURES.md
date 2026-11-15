@@ -1,6 +1,6 @@
-# Local Control — Feature Guide
+# Jarvis — Feature Guide
 
-Local Control is an offline macOS interface combining hand gestures, spoken targeting, application navigation, and dictation. This list describes implemented behavior, not planned capabilities.
+Jarvis is an offline macOS interface combining hand gestures, spoken targeting, application navigation, and dictation. This list describes implemented behavior, not planned capabilities.
 
 ## Hand and mouse control
 
@@ -59,7 +59,7 @@ Commands use explicit application rules rather than arbitrary model-generated ke
 - Say “Bye Jarvis,” press Stop recording, or remain silent for five seconds to finish.
 - Pending transcription is completed before the final note is saved.
 - Choose a destination using Notes folder…; the selection persists.
-- The default folder is Documents/Local Control Notes.
+- The default folder is Documents/Jarvis Notes.
 - Each note is saved as a separate UTF-8 text file with a unique name.
 - Existing files are not overwritten. Save failures retain recognized text in memory for folder changes and retry.
 - The notepad remains visible after saving, and ordinary voice targeting resumes.
@@ -68,7 +68,8 @@ Commands use explicit application rules rather than arbitrary model-generated ke
 ## Visual and audio feedback
 
 - Dark graphite main interface with a rounded camera view and gesture reference cards.
-- Persistent translucent, click-through speech pane in the upper-right corner.
+- Persistent translucent, click-through speech pane in the upper-right corner; fades to 22% opacity while the cursor is over it.
+- Always-visible Use cheatsheet below the webcam, covering gestures, targeting, spoken navigation, notes, and keyboard controls.
 - Immediate listening indication, red recognized speech, and separate processing status.
 - Full mirrored webcam preview in the floating speech pane, with aligned hand joints, connecting bones, and a highlighted index tip.
 - Hand status for pointing, pinches, scrolling, tracking loss, pause, and successful clicks.

@@ -132,7 +132,7 @@ func toggleMissionControl(completion: @escaping (Error?) -> Void) {
     let application = URL(fileURLWithPath: "/System/Applications/Mission Control.app", isDirectory: true)
     guard FileManager.default.fileExists(atPath: application.path) else {
         DispatchQueue.main.async {
-            completion(NSError(domain: "LocalControl", code: 30,
+            completion(NSError(domain: "Jarvis", code: 30,
                                userInfo: [NSLocalizedDescriptionKey: "The macOS Mission Control application is unavailable."]))
         }
         return

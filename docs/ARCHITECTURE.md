@@ -33,8 +33,8 @@ Spoken number → Argmax → local number parser → fresh target checks → poi
 | `src/control/number_choice.py` | 只解析当前编号选择中的完整数字语句或取消语句，不生成坐标或点击 |
 | `src/stt` | 本地模型检查、文件/PCM/麦克风转写；无鼠标或手势行为 |
 | `scripts/start_bonsai.sh` / `scripts/serve_bonsai.py` | 用已经安装的 MLX 运行时和 Bonsai 权重提供本机推理 |
-| `scripts/build_gesture_app.sh` | 通过本地 Swift SDK 编译 `.build/LocalControl.app` |
-| `scripts/build_product.sh` / `native/ProductLauncher.swift` | 构建 Finder 启动器 `.build/Local Control.app`，从已准备的项目位置启动 `desktop.py` |
+| `scripts/build_gesture_app.sh` | 通过本地 Swift SDK 编译 `.build/JarvisEngine.app` |
+| `scripts/build_product.sh` / `native/ProductLauncher.swift` | 构建 Finder 启动器 `.build/Jarvis.app`，从已准备的项目位置启动 `desktop.py` |
 
 ## 进程与线程
 

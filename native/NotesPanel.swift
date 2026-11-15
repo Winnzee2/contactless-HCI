@@ -23,8 +23,14 @@ final class NotesPanel: NSObject, NSWindowDelegate {
         if let path = UserDefaults.standard.string(forKey: "notesFolder") {
             return URL(fileURLWithPath: path, isDirectory: true)
         }
-        return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Local Control Notes", isDirectory: true)
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        // Keep existing notes in place when upgrading from the former product name.
+        let legacy = documents.appendingPathComponent("Local Control Notes", isDirectory: true)
+        if FileManager.default.fileExists(atPath: legacy.path) {
+            UserDefaults.standard.set(legacy.path, forKey: "notesFolder")
+            return legacy
+        }
+        return documents.appendingPathComponent("Jarvis Notes", isDirectory: true)
     }
 
     @objc func chooseFolder() {

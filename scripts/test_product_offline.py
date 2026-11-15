@@ -27,7 +27,7 @@ from control.coordinator import Coordinator
 from stt import STTConfig
 from stt.runtime import offline_command
 
-NATIVE = ROOT / ".build/LocalControl.app/Contents/MacOS/GestureCamera"
+NATIVE = ROOT / ".build/JarvisEngine.app/Contents/MacOS/GestureCamera"
 NO_NETWORK = "(version 1)(allow default)(deny network*)"
 
 

@@ -3,7 +3,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD="$ROOT/.build"
-APP="$BUILD/LocalControl.app"
+APP="$BUILD/JarvisEngine.app"
 mkdir -p "$APP/Contents/MacOS" "$BUILD/module-cache"
 export CLANG_MODULE_CACHE_PATH="$BUILD/module-cache"
 # Some upgraded Command Line Tools installations retain an obsolete duplicate

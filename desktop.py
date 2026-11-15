@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local Control: offline hand mouse + voice-to-screen-text targeting."""
+"""Jarvis: offline hand mouse + voice-to-screen-text targeting."""
 
 import argparse
 import json
@@ -18,7 +18,7 @@ from control.bonsai import BonsaiClient
 from control.coordinator import Coordinator
 from stt import STTConfig
 
-APP = ROOT / ".build/LocalControl.app/Contents/MacOS/GestureCamera"
+APP = ROOT / ".build/JarvisEngine.app/Contents/MacOS/GestureCamera"
 MAX_EVENT_CHARS = 3000000
 
 
@@ -192,7 +192,7 @@ def run(args):
         threading.Thread(target=reader, args=(native, "native", events), daemon=True).start()
         coordinator = Coordinator(lambda value: send(native, value), lambda value: send(worker, value))
         coordinator.set_voice_ready(False)
-        print("Local Control is open. Enable control in its window; Escape pauses, Q quits.", flush=True)
+        print("Jarvis is open. Enable control in its window; Escape pauses, Q quits.", flush=True)
         while native.poll() is None:
             try:
                 source, event = events.get(timeout=0.1)
@@ -247,7 +247,7 @@ def main():
             return run_worker(args)
         return check(args) if args.check else run(args)
     except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
-        print(f"Local Control: {error}", file=sys.stderr)
+        print(f"Jarvis: {error}", file=sys.stderr)
         return 1
 
 
