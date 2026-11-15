@@ -379,6 +379,12 @@ class Coordinator:
             if self.request_id(event) in self.pending:
                 self.last_transcript = str(event.get("text", ""))[:300]
                 self.status(f'Heard: {self.last_transcript} — locating target…')
+                search = self.pending[self.request_id(event)]
+                if (source == "worker" and search.submitted and self.armed
+                        and search.generation == self.generation and isinstance(event.get("text"), str)
+                        and self.last_transcript.strip()):
+                    self.send_native({"type": "voice_feedback", "request_id": search.request_id,
+                                      "text": self.last_transcript})
         elif kind == "navigation":
             # Navigation is an explicit worker intent, never a model-supplied
             # action or a native event masquerading as recognized speech.

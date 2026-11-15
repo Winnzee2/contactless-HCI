@@ -40,6 +40,23 @@ class TestCoordinator(unittest.TestCase):
         self.coordinator.handle({"type": "speech_audio", "request_id": "a", "pcm_base64": "AAA=", "sample_rate": 16000})
         self.assertEqual(len(self.worker), 1)
 
+    def test_voice_caption_uses_current_worker_transcript_without_moving_pointer(self):
+        self.submit()
+        self.coordinator.handle({"type": "transcript", "request_id": "a", "text": "Codex"}, source="worker")
+        self.assertEqual(self.native[-1], {"type": "voice_feedback", "request_id": "a", "text": "Codex"})
+        self.assertFalse(any(event["type"] == "voice_action" for event in self.native))
+        self.assertEqual(self.coordinator.pointer, (500, 300))
+
+    def test_voice_caption_rejects_stale_empty_and_wrong_source_transcripts(self):
+        self.submit()
+        for key, text, source in (("old", "Codex", "worker"), ("a", "Codex", "native"),
+                                  ("a", "  ", "worker"), ("a", None, "worker")):
+            self.coordinator.handle({"type": "transcript", "request_id": key, "text": text}, source=source)
+        self.assertFalse(any(event["type"] == "voice_feedback" for event in self.native))
+        self.coordinator.handle({"type": "state", "armed": False}, source="native")
+        self.coordinator.handle({"type": "transcript", "request_id": "a", "text": "Codex"}, source="worker")
+        self.assertFalse(any(event["type"] == "voice_feedback" for event in self.native))
+
     def test_selection_only_moves_to_ocr_coordinates(self):
         self.submit()
         self.coordinator.handle({"type": "selection", "request_id": "a", "target_id": "t1", "x": 9999})

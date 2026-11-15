@@ -154,6 +154,138 @@ final class TargetOverlay {
     }
 }
 
+private final class SensingRingView: NSView {
+    var center = CGPoint.zero
+    static let radius: CGFloat = 72
+    override var isOpaque: Bool { false }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func draw(_ dirtyRect: NSRect) {
+        let accent = NSColor(srgbRed: 0.15, green: 0.9, blue: 1, alpha: 1)
+        let circle = NSBezierPath(ovalIn: CGRect(x: center.x - Self.radius, y: center.y - Self.radius,
+                                                width: Self.radius * 2, height: Self.radius * 2))
+        accent.withAlphaComponent(0.025).setFill(); circle.fill()
+        NSColor.black.withAlphaComponent(0.3).setStroke(); circle.lineWidth = 4; circle.stroke()
+        accent.withAlphaComponent(0.65).setStroke(); circle.lineWidth = 1; circle.stroke()
+        for angle in stride(from: 0.0, to: 360.0, by: 30.0) {
+            let radians = angle * .pi / 180
+            let major = Int(angle) % 90 == 0
+            let tick = NSBezierPath()
+            tick.move(to: CGPoint(x: center.x + cos(radians) * (Self.radius + 4),
+                                 y: center.y + sin(radians) * (Self.radius + 4)))
+            tick.line(to: CGPoint(x: center.x + cos(radians) * (Self.radius + (major ? 11 : 7)),
+                                 y: center.y + sin(radians) * (Self.radius + (major ? 11 : 7))))
+            accent.withAlphaComponent(major ? 0.9 : 0.4).setStroke()
+            tick.lineWidth = major ? 2 : 1; tick.stroke()
+        }
+    }
+}
+
+private final class VoiceCaptionView: NSView {
+    var text = ""
+    override var isOpaque: Bool { false }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func draw(_ dirtyRect: NSRect) {
+        let card = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 14, yRadius: 14)
+        NSColor(srgbRed: 0.035, green: 0.045, blue: 0.06, alpha: 0.94).setFill(); card.fill()
+        let red = NSColor(srgbRed: 1, green: 0.22, blue: 0.27, alpha: 1)
+        red.withAlphaComponent(0.4).setStroke(); card.lineWidth = 1; card.stroke()
+        red.setFill()
+        NSBezierPath(ovalIn: CGRect(x: 19, y: bounds.height - 27, width: 6, height: 6)).fill()
+        ("VOICE RECOGNIZED" as NSString).draw(at: CGPoint(x: 33, y: bounds.height - 30),
+            withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold),
+                             .foregroundColor: red.withAlphaComponent(0.85), .kern: 1.2])
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        (text as NSString).draw(in: CGRect(x: 18, y: 15, width: bounds.width - 36, height: 55),
+            withAttributes: [.font: NSFont.systemFont(ofSize: 22, weight: .semibold),
+                             .foregroundColor: red, .paragraphStyle: paragraph])
+    }
+}
+
+/// Presentation only: no targeting radius restriction, input events, or saved speech.
+/// Suspension keeps these visuals out of OCR without extending the caption deadline.
+final class SensingOverlay {
+    private var ringPanel: TargetOverlayPanel?
+    private var captionPanel: TargetOverlayPanel?
+    private var point: CGPoint?
+    private var transcript = ""
+    private var expiresAt: TimeInterval = 0
+    private var suspensions = 0
+
+    private func panel(view: NSView) -> TargetOverlayPanel {
+        let panel = TargetOverlayPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                                       backing: .buffered, defer: false)
+        panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = false
+        panel.ignoresMouseEvents = true; panel.hidesOnDeactivate = false
+        panel.isFloatingPanel = true; panel.becomesKeyOnlyIfNeeded = true
+        panel.level = .statusBar; panel.animationBehavior = .none; panel.isReleasedWhenClosed = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        view.setAccessibilityElement(false); panel.contentView = view
+        return panel
+    }
+
+    func updateCursor(_ point: CGPoint?, time: TimeInterval) {
+        precondition(Thread.isMainThread)
+        self.point = point
+        refresh(time: time)
+    }
+    func showTranscript(_ text: String, time: TimeInterval) {
+        precondition(Thread.isMainThread)
+        let clean = text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        guard !clean.isEmpty, time.isFinite else { return }
+        transcript = String(clean.prefix(300)); expiresAt = time + 8
+        refresh(time: time)
+    }
+    func clear() {
+        precondition(Thread.isMainThread)
+        point = nil; transcript = ""; expiresAt = 0
+        ringPanel?.orderOut(nil); captionPanel?.orderOut(nil)
+    }
+    func suspend() {
+        precondition(Thread.isMainThread)
+        suspensions += 1
+        ringPanel?.orderOut(nil); captionPanel?.orderOut(nil)
+    }
+    func resume(time: TimeInterval) {
+        precondition(Thread.isMainThread)
+        suspensions = max(0, suspensions - 1)
+        refresh(time: time)
+    }
+    func refresh(time: TimeInterval) {
+        precondition(Thread.isMainThread)
+        if time >= expiresAt { transcript = "" }
+        guard suspensions == 0 else { return }
+        let display = CGMainDisplayID(), quartz = CGDisplayBounds(CGMainDisplayID())
+        guard let screen = NSScreen.screens.first(where: {
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == display
+        }) else { clear(); return }
+        if let point = point, point.x.isFinite, point.y.isFinite, quartz.contains(point) {
+            let center = overlayScreenPoint(point, quartzBounds: quartz, appKitFrame: screen.frame)
+            // Clip at display edges; never shift the center away from the cursor.
+            let frame = CGRect(x: center.x - 86, y: center.y - 86, width: 172, height: 172).intersection(screen.frame)
+            if ringPanel == nil { ringPanel = panel(view: SensingRingView()) }
+            ringPanel?.setFrame(frame, display: false)
+            if let view = ringPanel?.contentView as? SensingRingView {
+                view.frame = CGRect(origin: .zero, size: frame.size)
+                view.center = CGPoint(x: center.x - frame.minX, y: center.y - frame.minY)
+                view.needsDisplay = true
+            }
+            if ringPanel?.isVisible == false { ringPanel?.orderFrontRegardless() }
+        } else { ringPanel?.orderOut(nil) }
+        if !transcript.isEmpty {
+            let usable = screen.visibleFrame.insetBy(dx: 18, dy: 18)
+            let width = min(360, usable.width), height = min(108, usable.height)
+            let frame = CGRect(x: usable.maxX - width, y: usable.maxY - height, width: width, height: height)
+            if captionPanel == nil { captionPanel = panel(view: VoiceCaptionView()) }
+            captionPanel?.setFrame(frame, display: false)
+            if let view = captionPanel?.contentView as? VoiceCaptionView {
+                view.frame = CGRect(origin: .zero, size: frame.size); view.text = transcript; view.needsDisplay = true
+            }
+            if captionPanel?.isVisible == false { captionPanel?.orderFrontRegardless() }
+        } else { captionPanel?.orderOut(nil) }
+    }
+}
+
 /// Pure geometry checks: no application, panels, permissions, or input required.
 func targetOverlayGeometrySelfTest() -> (tests: Int, failures: [String]) {
     var failures: [String] = []

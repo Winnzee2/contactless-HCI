@@ -2,6 +2,8 @@
 
 On an Apple Silicon Mac, move the pointer with your index finger, pinch to click, and name a nearby visible control to target it across applications. Camera recognition, speech transcription, accessibility inspection, screen text recognition, and Bonsai inference all run locally. No browser extension or integration with a particular website is required.
 
+A cyan sensing circle follows the cursor while hand control is active. It is a visual focus indicator; voice targeting still searches the entire primary screen. Recognized speech appears in **red in the upper-right corner** for eight seconds, updating with each new utterance. Both overlays let clicks pass through, never take keyboard focus, and disappear when control is paused. They are temporarily hidden during screen recognition so the app cannot read its own captions as targets.
+
 **Voice positions the pointer, navigates back, or switches browser tabs; it never clicks.** For example, point near a visible label and say “Codex.” The pointer moves to the recognized target and locks in place. For the first **15 seconds**, finger movement cannot pull it away, giving you time to pinch and release your thumb and middle finger for a left click, or hold the pinch for a double-click.
 
 A click-through highlight shows the selected target and the remaining hold time. The highlight and lock expire after the countdown. Clicking, pausing, or beginning another voice search also dismisses the highlight.

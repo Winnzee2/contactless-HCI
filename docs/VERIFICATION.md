@@ -1,5 +1,11 @@
 # 离线验证记录与复现
 
+## Cursor Sensing Circle and Recognized Speech Caption
+
+On November 15, 2026 (Eastern time), a cyan cursor ring and an upper-right red speech caption were added. The caption receives only a current, submitted worker transcript; it displays the recognized text for eight seconds without sending an input action. The ring is visual feedback and does not restrict full-screen targeting. Both panels are suspended throughout native target discovery, including asynchronous capture, then restored without extending the caption deadline.
+
+The Python suite passed **155 tests, with two additional optional model tests skipped** (157 discovered). All **259 native checks** passed. A separate AppKit probe rendered the production panels and verified click-through/nonactivating properties, unchanged foreground focus and cursor position, nested capture suspension, hiding the ring on tracking loss, caption expiry during suspension, and pause cleanup. Both rendered panels were visually inspected. Evidence remains in ignored `.build/verification/sensing-overlay/`. This check used no camera, microphone, or new model downloads.
+
 The [cross-application verification](CROSS_APP.md) includes successful Wi-Fi-off target-selection checks in Finder, TextEdit, and Safari. After adding adjacent browser-tab navigation, the suite passes **154 Python tests and 237 native checks**. Earlier human-input and component records retain their original scope; they do not substitute for physical acceptance of the new gestures or voice flows.
 
 ## Adjacent Browser Tabs

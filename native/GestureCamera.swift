@@ -380,6 +380,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     var lastRawPoint: CGPoint?
     var targetLock = TargetLock()
     let targetOverlay = TargetOverlay()
+    let sensingOverlay = SensingOverlay()
     let duplicateOverlay = DuplicateTargetOverlay()
     private var targetCaptures: [String: TargetCapture] = [:]
     private var latestCaptureID: String?
@@ -412,6 +413,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             if self.armed && !AXIsProcessTrusted() { self.setArmed(false) }
             if self.targetLock.resolve(hand: self.lastRawPoint ?? .zero, time: now()) == nil { self.targetOverlay.hide() }
             self.targetOverlay.refresh(now: now())
+            self.sensingOverlay.updateCursor(self.armed && self.tracked ? CGEvent(source: nil)?.location : nil, time: now())
         }
         requestCamera()
     }
@@ -586,6 +588,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             }
         }
         armed = value
+        if !value { sensingOverlay.clear() }
         scrollPinch.reset(); leftPinch.reset(); rightPinch.reset()
         fistOpen.reset(); pinchApproach.reset(); pinchPoint = nil; gestureBusy = false
         missionControlTransition.cancel()
@@ -626,6 +629,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         !gestureBusy && !missionControlTransition.blocksInput(time: now()) && now() - lastActionTime >= 0.5
     }
     func publishPointer(_ point: CGPoint, time: Double) {
+        sensingOverlay.updateCursor(armed && tracked ? point : nil, time: time)
         if time - lastPointerEvent > 0.05 {
             emit(["type": "pointer", "x": point.x, "y": point.y, "tracked": true])
             lastPointerEvent = time
@@ -750,6 +754,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if !leftPinch.active && !pinchApproach.active { pinchPoint = nil }
     }
     func loseHand() {
+        sensingOverlay.updateCursor(nil, time: now())
         preview.rawPoint = nil; preview.joints = [:]
         if tracked { mic.setArmed(false) }
         scrollPinch.reset(); leftPinch.reset(); rightPinch.reset()
@@ -802,6 +807,13 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
     func handleInput(_ json: [String: Any]) {
         guard !closing else { return }
+        if json["type"] as? String == "voice_feedback" {
+            guard armed, useVoice, Set(json.keys) == ["type", "request_id", "text"],
+                  let id = json["request_id"] as? String, currentCapture(id) != nil,
+                  let text = json["text"] as? String, text.count <= 300 else { return }
+            sensingOverlay.showTranscript(text, time: now())
+            return
+        }
         if json["type"] as? String == "status", let message = json["message"] as? String {
             if json["important"] as? Bool == true || (armed && useVoice && audioStarted) { speechLabel.stringValue = String(message.prefix(400)) }
             else { refreshVoiceHint() }
@@ -982,7 +994,9 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         // Keep both kinds of labels out of OCR; suspension preserves the deadline.
         targetOverlay.hide()
         duplicateOverlay.suspend()
+        sensingOverlay.suspend()
         Task { @MainActor in
+            defer { sensingOverlay.resume(time: now()) }
             // Let WindowServer commit the hidden panels before capturing pixels.
             try? await Task.sleep(nanoseconds: 50_000_000)
             let targets = await discoverTargets(region: region, pointer: CGPoint(x: x.doubleValue, y: y.doubleValue))
