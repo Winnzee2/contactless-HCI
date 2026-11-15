@@ -24,6 +24,18 @@ class TestTargetSelection(unittest.TestCase):
         with patch.object(client, '_request', side_effect=reply):
             return client.select_target(text, options).target_id
 
+    def test_minor_errors_and_natural_requests(self):
+        for phrase in ("Could you take me to the Codex tab please", "open Codxe", "find Codx", "帮我找一下Codex"):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(self.choose_label(phrase, ["Codex", "Safari"], "Codex"), "native-0")
+
+    def test_fuzzy_competing_names_are_numbered(self):
+        client = BonsaiClient('http://127.0.0.1:1234', 'bonsai-local')
+        with patch.object(client, '_request', return_value={"choices": [{"message": {"content": '{"target_id":"0"}'}}]}):
+            result = client.select_target("open Codex", [{"id":"a","label":"Coder"}, {"id":"b","label":"Codec"}])
+        self.assertIsNone(result.target_id)
+        self.assertEqual(set(result.candidate_ids), {"a", "b"})
+
     def test_duplicate_matching_labels_are_ambiguous_even_if_model_picks_one(self):
         options = [{"id":"a","label":"Codex"}, {"id":"b","label":"CODEX"}]
         self.assertIsNone(parse_target('{"target_id":"a"}', options).target_id)

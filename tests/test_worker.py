@@ -77,6 +77,14 @@ class TestVoiceWorker(unittest.TestCase):
             self.assertEqual([record["type"] for record in records], ["worker_ready", "transcript", "navigation"])
             self.assertEqual(records[-1], {"type": "navigation", "request_id": "a", "action": "back"})
 
+    def test_natural_navigation_and_small_transcription_error(self):
+        for phrase, action in (("Could you switch to the tab on the left please", "tab_left"),
+                               ("Tap right.", "tab_right"), ("Please go back", "back"),
+                               ("返回上一页", "back")):
+            self.assertEqual(navigation_intent(phrase), action)
+        for phrase in ("Do not tap left", "If I say tap right", "tap left and click"):
+            self.assertIsNone(navigation_intent(phrase))
+
     def test_tab_navigation_requires_one_complete_direction_phrase(self):
         for transcript, expected in (("tab left", "tab_left"), ("Tab Right.", "tab_right"),
                                      ("  TAB   LEFT!  ", "tab_left"), ("ＴＡＢ ＲＩＧＨＴ。", "tab_right")):

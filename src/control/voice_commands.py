@@ -2,6 +2,7 @@
 
 from typing import Optional
 import unicodedata
+import re
 
 
 def navigation_intent(transcript: str) -> Optional[str]:
@@ -14,4 +15,11 @@ def navigation_intent(transcript: str) -> Optional[str]:
         return None
     text = " ".join(unicodedata.normalize("NFKC", transcript).casefold().split())
     text = text.strip(" .!?。，？！")
-    return {"last page": "back", "tab left": "tab_left", "tab right": "tab_right"}.get(text)
+    text = re.sub(r"^(?:please |(?:can|could|would) you (?:please )?)", "", text)
+    text = re.sub(r"(?: please|谢谢)$", "", text).strip()
+    if re.fullmatch(r"(?:go |navigate )back(?: to (?:the )?(?:last|previous) page)?|last page|返回上一页|回到上一页", text):
+        return "back"
+    match = re.fullmatch(r"(?:tab|tap) (left|right)|(?:switch|go|move) to (?:the )?tab (?:on|to) (?:the )?(left|right)", text)
+    if match:
+        return "tab_" + (match.group(1) or match.group(2))
+    return {"切换到左边的标签页": "tab_left", "切换到右边的标签页": "tab_right"}.get(text)

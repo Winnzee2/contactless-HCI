@@ -1,6 +1,7 @@
 // A transient, click-through indicator for an existing voice target lock.
 // All public methods are called on the main thread. This view never sends input.
 import AppKit
+import AVFoundation
 
 private func overlayScreenPoint(_ point: CGPoint, quartzBounds: CGRect, appKitFrame: CGRect) -> CGPoint {
     // Both coordinate spaces use points, including on Retina displays. Quartz
@@ -306,4 +307,49 @@ func targetOverlayGeometrySelfTest() -> (tests: Int, failures: [String]) {
               "The complete target caption remains on screen")
     }
     return (tests, failures)
+}
+
+// Short synthesized tactile cues: no files, downloads, speech, or network.
+final class TactileAudio {
+    enum Cue { case lock, click, doubleClick, scroll, choices, navigation }
+    private var player: AVAudioPlayer?
+    private var lastPlayed = -Double.infinity
+    func play(_ cue: Cue) -> Bool {
+        let time = ProcessInfo.processInfo.systemUptime
+        guard time - lastPlayed > 0.12 else { return false }
+        let notes: [Double]
+        switch cue {
+        case .lock: notes = [660, 990]
+        case .click: notes = [820]
+        case .doubleClick: notes = [820, 820]
+        case .scroll: notes = [380]
+        case .choices: notes = [520, 660]
+        case .navigation: notes = [740, 550]
+        }
+        let rate = 22050, frames = 1102
+        var pcm = Data()
+        func append<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
+            var little = value.littleEndian
+            withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
+        }
+        for frequency in notes {
+            for i in 0..<frames {
+                let envelope = pow(sin(Double.pi * Double(i) / Double(frames)), 2)
+                let value = Int16(sin(2 * .pi * frequency * Double(i) / Double(rate)) * envelope * 3500)
+                append(value, to: &pcm)
+            }
+            pcm.append(Data(count: 220 * 2))
+        }
+        var wav = Data("RIFF".utf8)
+        append(UInt32(36 + pcm.count), to: &wav); wav.append(Data("WAVEfmt ".utf8))
+        append(UInt32(16), to: &wav); append(UInt16(1), to: &wav); append(UInt16(1), to: &wav)
+        append(UInt32(rate), to: &wav); append(UInt32(rate * 2), to: &wav)
+        append(UInt16(2), to: &wav); append(UInt16(16), to: &wav)
+        wav.append(Data("data".utf8)); append(UInt32(pcm.count), to: &wav); wav.append(pcm)
+        guard let sound = try? AVAudioPlayer(data: wav) else { return false }
+        player = sound
+        guard sound.play() else { return false }
+        lastPlayed = time
+        return true
+    }
 }

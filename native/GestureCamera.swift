@@ -381,6 +381,9 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     var targetLock = TargetLock()
     let targetOverlay = TargetOverlay()
     let sensingOverlay = SensingOverlay()
+    let tactileAudio = TactileAudio()
+    var audioCueDeadline = -Double.infinity
+    var soundEnabled = UserDefaults.standard.object(forKey: "soundEnabled") as? Bool ?? true
     let duplicateOverlay = DuplicateTargetOverlay()
     private var targetCaptures: [String: TargetCapture] = [:]
     private var latestCaptureID: String?
@@ -438,7 +441,9 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         toggleButton.bezelStyle = .rounded
         let quit = NSButton(title: "Quit", target: self, action: #selector(quitPressed))
         quit.bezelStyle = .rounded
-        let buttons = NSStackView(views: [toggleButton, quit]); buttons.orientation = .horizontal; buttons.spacing = 12
+        let sound = NSButton(checkboxWithTitle: "Sound effects", target: self, action: #selector(toggleSound(_:)))
+        sound.state = soundEnabled ? .on : .off
+        let buttons = NSStackView(views: [toggleButton, quit, sound]); buttons.orientation = .horizontal; buttons.spacing = 12
         let info = NSStackView(views: [stateLabel, speechLabel, hint, buttons])
         info.orientation = .vertical; info.alignment = .leading; info.spacing = 9
         info.translatesAutoresizingMaskIntoConstraints = false
@@ -612,6 +617,21 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             speechLabel.stringValue = "Voice is paused. Enable pointer, show your hand, then say a visible label."
         }
     }
+    @objc func toggleSound(_ sender: NSButton) {
+        soundEnabled = sender.state == .on
+        UserDefaults.standard.set(soundEnabled, forKey: "soundEnabled")
+    }
+    func tactile(_ cue: TactileAudio.Cue) {
+        guard soundEnabled, tactileAudio.play(cue) else { return }
+        // Avoid transcribing our own speaker output. Resume only if control is
+        // still enabled and the hand is available after the short cue tail.
+        audioCueDeadline = now() + 0.25
+        mic.setArmed(false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) { [weak self] in
+            guard let self = self, !self.closing, now() >= self.audioCueDeadline else { return }
+            self.mic.setArmed(self.armed && self.tracked && !self.gestureBusy)
+        }
+    }
     func report(_ message: String) {
         speechLabel.stringValue = message
         emit(["type": "error", "message": message])
@@ -619,7 +639,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func setGestureBusy(_ busy: Bool) {
         guard busy != gestureBusy else { return }
         gestureBusy = busy
-        mic.setArmed(armed && tracked && !busy)
+        mic.setArmed(armed && tracked && !busy && now() >= audioCueDeadline)
         if busy {
             invalidateTargetContext(preservingPrompt: true)
             emit(["type": "gesture_cancel", "source": "gesture"])
@@ -670,7 +690,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         guard !closing, now() - time < 0.4 else { return }
         let regainedHand = !tracked
         tracked = true; lastHandTime = time
-        if regainedHand && armed && !gestureBusy { mic.setArmed(true) }
+        if regainedHand && armed && !gestureBusy && now() >= audioCueDeadline { mic.setArmed(true) }
         preview.videoSize = videoSize; preview.rawPoint = raw; preview.joints = joints
         lastRawPoint = raw
         let target = screenPoint(raw, bounds: screen)
@@ -696,6 +716,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
                     (scrollPinch.active || scrollRatio >= 0.58 || scrollRatio < min(leftRatio, rightRatio)),
                 time: time)
             if scrollPinch.active || wasScrolling {
+                if scrollPinch.active && !wasScrolling { tactile(.scroll) }
                 setGestureBusy(scrollPinch.active)
                 leftPinch.reset(); rightPinch.reset(); fistOpen.reset(); pinchPoint = nil
                 if pointer == nil { pointer = CGEvent(source: nil)?.location ?? target }
@@ -775,6 +796,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let button: CGMouseButton = action == .right ? .right : .left
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: button)?.post(tap: .cghidEventTap)
         for event in events { event.post(tap: .cghidEventTap) }
+        tactile(action == .double ? .doubleClick : .click)
         lastActionTime = now()
         emit(["type": "action", "action": action.rawValue, "source": "gesture", "x": point.x, "y": point.y])
         targetLock.clear()
@@ -863,6 +885,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         guard armed, tracked, acceptsVoiceTarget, now() - lastHandTime <= 0.4, AXIsProcessTrusted(), let anchor = lastRawPoint else { return }
         let lockedAt = now()
         targetLock.hold(point, anchor: anchor, time: lockedAt); pointer = point
+        tactile(.lock)
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
         targetOverlay.show(point: point, label: label, protectedUntil: lockedAt + 15)
         emit(["type": "pointer", "x": point.x, "y": point.y, "tracked": true])
@@ -909,6 +932,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         // Deliver only to the application bound to this recording. A focus change
         // cannot redirect the shortcut to an editor or another application.
         for event in events { event.postToPid(application.processIdentifier) }
+        tactile(.navigation)
         emit(["type": "action", "source": "voice", "action": instruction.action, "request_id": instruction.requestID])
     }
     func showChoices(_ json: [String: Any]) {
@@ -947,6 +971,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             self?.invalidateTargetContext()
             emit(["type": "choices_cancel", "choice_id": expired])
         }) else { reject(); return }
+        tactile(.choices)
         emit(["type": "choices_shown", "choice_id": id])
     }
     func captureTargets(_ json: [String: Any]) {

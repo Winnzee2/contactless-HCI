@@ -111,12 +111,12 @@ def _name(text):
 _EN_REQUEST = re.compile(
     r"^(?:(?:please|(?:can|could|would|will) you(?: please)?|"
     r"i (?:want|would like) to) )?"
-    r"(?:open|find|go(?: to)?|navigate to|switch to|select|click(?: on)?|"
+    r"(?:take me to|bring me to|open|find|go(?: to)?|navigate to|switch to|select|click(?: on)?|"
     r"tap(?: on)?|press|show|focus(?: on)?|hover over|point to|"
     r"move(?: the)?(?: mouse| cursor| pointer)? to) +(.+)$")
 _ZH_REQUEST = re.compile(
     r"^(?:(?:请|麻烦|帮我|请帮我|麻烦帮我|可以帮我|能不能帮我)\s*)?"
-    r"(?:打开|点击|点开|点一下|选中|选择|切换到|转到|跳转到|进入|找到|查找|"
+    r"(?:找一下|打开|点击|点开|点一下|选中|选择|切换到|转到|跳转到|进入|找到|查找|"
     r"移动到|移到|把(?:鼠标|光标|指针)(?:移动到|移到))\s*(.+)$")
 _EN_CONTROL_SUFFIX = re.compile(
     r" (?:tab|button|link|menu item|menu|option|control|field|folder|item|"
@@ -179,6 +179,22 @@ def _names_label(transcript, label):
                for group in _spoken_name_groups(transcript) for name in group)
 
 
+def _minor_spelling_difference(left, right):
+    # One insertion/deletion/substitution or adjacent transposition, only for
+    # substantial names. Never fuzzy-match short labels or entire conversations.
+    left, right = left.replace(" ", ""), right.replace(" ", "")
+    if min(len(left), len(right)) < 4 or abs(len(left) - len(right)) > 1:
+        return False
+    if left == right:
+        return True
+    if len(left) == len(right):
+        changed = [i for i, pair in enumerate(zip(left, right)) if pair[0] != pair[1]]
+        return len(changed) == 1 or (len(changed) == 2 and changed[1] == changed[0] + 1
+            and left[changed[0]] == right[changed[1]] and left[changed[1]] == right[changed[0]])
+    short, long = sorted((left, right), key=len)
+    return any(long[:i] + long[i + 1:] == short for i in range(len(long)))
+
+
 def _matching_candidates(transcript, candidates):
     """Find named candidates for model context and output validation."""
     for names in _spoken_name_groups(transcript):
@@ -192,6 +208,11 @@ def _matching_candidates(transcript, candidates):
                        and _phrase_in_label(name, _name(item["label"]))]
             if matches:
                 return matches, False
+    for names in _spoken_name_groups(transcript):
+        matches = [item for item in candidates if not NEGATED_SPEECH.search(item["label"])
+                   and any(_minor_spelling_difference(name, _name(item["label"])) for name in names)]
+        if matches:
+            return matches, False
     return [], False
 
 
@@ -338,7 +359,7 @@ class BonsaiClient:
         # Case/punctuation alone do not change a spoken label's meaning. Using
         # its displayed spelling also avoids confusing e.g. "finder" with a verb.
         exact = [item for item in candidates if _name(item["label"]) == _name(transcript)]
-        model_transcript = exact[0]["label"] if len(exact) == 1 else transcript
+        model_transcript = exact[0]["label"] if len(exact) == 1 else (matches[0]["label"] if len(matches) == 1 and not _names_label(transcript, matches[0]["label"]) else transcript)
         selection_schema = {
             "type": "object",
             "properties": {
