@@ -405,13 +405,13 @@ class TestCoordinator(unittest.TestCase):
         self.assertIn("a", self.coordinator.pending)
         self.assertFalse(any(x["type"] == "voice_action" for x in self.native))
 
-    def test_clamped_screen_edge_region_keeps_valid_candidates(self):
+    def test_full_screen_region_keeps_distant_candidates(self):
         self.coordinator.handle({"type": "ready", "screen_width": 1000, "screen_height": 700}, source="native")
         self.coordinator.handle({"type": "pointer", "tracked": True, "x": 20, "y": 20})
         self.begin()
-        target = dict(self.target, x=650, y=390)
+        target = dict(self.target, x=950, y=650)
         self.coordinator.handle({"type": "targets", "request_id": "a", "targets": [target],
-                                 "region": {"x": 0, "y": 0, "width": 720, "height": 420}})
+                                 "region": {"x": 0, "y": 0, "width": 1000, "height": 700}})
         self.assertEqual(self.coordinator.pending["a"].targets, [target])
 
     def test_unexpected_region_cancels_request(self):

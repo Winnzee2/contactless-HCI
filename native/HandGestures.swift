@@ -93,6 +93,18 @@ struct ScrollPinchLatch {
     }
 }
 
+/// Freeze before contact, with a wider release threshold to avoid jitter.
+struct PinchApproachLatch {
+    private(set) var active = false
+    mutating func reset() { active = false }
+    mutating func update(ratio: Double) -> Bool {
+        guard ratio.isFinite, ratio >= 0 else { reset(); return false }
+        if ratio >= 0.75 { active = false }
+        else if ratio <= 0.55 { active = true }
+        return active
+    }
+}
+
 enum HandPose: Equatable {
     case fist, closing, open, other, unknown
 }
@@ -287,6 +299,14 @@ func handGestureSelfTest() -> (tests: Int, failures: [String]) {
         tests += 1
         if !okay { failures.append(message) }
     }
+    var approach = PinchApproachLatch()
+    check(!approach.update(ratio: 0.9), "Open fingers allow pointer motion")
+    check(approach.update(ratio: 0.54), "Approaching fingers freeze before contact")
+    check(approach.update(ratio: 0.68), "Approach hysteresis prevents jitter")
+    check(!approach.update(ratio: 0.76), "Opening fingers releases cursor freeze")
+    _ = approach.update(ratio: 0.2)
+    approach.reset()
+    check(!approach.active, "Pause and tracking reset release approach freeze")
     var scroll = ScrollPinchLatch()
     check(scroll.update(ratio: 0.2, y: 0.5, eligible: true, time: 0) == 0 && !scroll.active,
           "Scroll requires an open hand sample before pinching")

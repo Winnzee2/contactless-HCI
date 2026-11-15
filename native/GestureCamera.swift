@@ -31,7 +31,7 @@ func imageDistance(_ a: CGPoint, _ b: CGPoint, size: CGSize) -> Double {
 }
 
 // Vision coordinates are normalized, unmirrored, and bottom-left based.
-func screenPoint(_ point: CGPoint, bounds: CGRect, margin: Double = 0.15) -> CGPoint {
+func screenPoint(_ point: CGPoint, bounds: CGRect, margin: Double = 0.23) -> CGPoint {
     let x = clamp((1 - point.x - margin) / (1 - 2 * margin), 0, 1)
     let y = clamp((1 - point.y - margin) / (1 - 2 * margin), 0, 1)
     return CGPoint(x: bounds.minX + x * (bounds.width - 1), y: bounds.minY + y * (bounds.height - 1))
@@ -374,6 +374,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
     var rightPinch = PinchLatch()
     var fistOpen = FistOpenLatch()
     var pinchPoint: CGPoint?
+    var pinchApproach = PinchApproachLatch()
     var gestureBusy = false
     var missionControlTransition = MissionControlTransition()
     var lastRawPoint: CGPoint?
@@ -580,7 +581,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
         armed = value
         scrollPinch.reset(); leftPinch.reset(); rightPinch.reset()
-        fistOpen.reset(); pinchPoint = nil; gestureBusy = false
+        fistOpen.reset(); pinchApproach.reset(); pinchPoint = nil; gestureBusy = false
         missionControlTransition.cancel()
         targetLock.clear()
         targetOverlay.hide()
@@ -672,6 +673,10 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 let palm = imageDistance(wrist, middle, size: videoSize)
                 scrollRatio = palm > 0 ? imageDistance(pinky, thumb, size: videoSize) / palm : .infinity
             } else { scrollRatio = .infinity }
+            let approaching = pinchApproach.update(ratio: min(leftRatio, rightRatio, scrollRatio))
+            if approaching && pinchPoint == nil {
+                pinchPoint = pointer ?? CGEvent(source: nil)?.location ?? target
+            }
             let scrollDelta = scrollPinch.update(ratio: scrollRatio, y: Double(joints[.wrist]?.y ?? raw.y),
                 eligible: pose != .fist && pose != .closing && !fistOpen.isEngaged &&
                     !missionControlTransition.blocksInput(time: now()) && leftRatio > 0.45 && rightRatio > 0.45,
@@ -697,7 +702,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             if showWindows || fistOpen.isEngaged || pose == .fist || pose == .closing ||
                 missionControlTransition.blocksInput(time: now()) {
                 setGestureBusy(true)
-                scrollPinch.reset(); leftPinch.reset(); rightPinch.reset(); pinchPoint = nil
+                scrollPinch.reset(); leftPinch.reset(); rightPinch.reset(); pinchApproach.reset(); pinchPoint = nil
                 targetLock.clear(); targetOverlay.hide()
                 // Folding the index finger must not drag the pointer across the desktop.
                 if pointer == nil { pointer = CGEvent(source: nil)?.location ?? target }
@@ -708,20 +713,20 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
             pinchEvent = leftPinch.update(ratio: leftRatio,
                                          eligible: rightRatio > 0.45 && (leftPinch.active || time - lastActionTime >= 0.5),
                                          time: time)
-            if pinchEvent == .began {
+            if pinchEvent == .began && pinchPoint == nil {
                 pinchPoint = pointer ?? CGEvent(source: nil)?.location ?? target
             }
-            setGestureBusy(leftPinch.active)
+            setGestureBusy(leftPinch.active || pinchApproach.active)
             if leftPinch.active || leftRatio <= 0.45 { rightPinch.reset() }
             else { rightEdge = rightPinch.update(ratio: rightRatio, time: time) }
         }
         // Preserve the captured point through release, including the frame that
         // emits a quick single click. A held pinch never emits a preliminary click.
-        if let held = pinchPoint, leftPinch.active || pinchEvent == .singleClick || pinchEvent == .doubleClick { pointer = held }
+        if let held = pinchPoint, pinchApproach.active || leftPinch.active || rightEdge || pinchEvent == .singleClick || pinchEvent == .doubleClick { pointer = held }
         else if let locked = targetLock.resolve(hand: raw, time: time) { pointer = locked }
         else {
             targetOverlay.hide()
-            if let old = pointer { pointer = CGPoint(x: old.x + 0.28 * (target.x - old.x), y: old.y + 0.28 * (target.y - old.y)) }
+            if let old = pointer { pointer = CGPoint(x: old.x + 0.18 * (target.x - old.x), y: old.y + 0.18 * (target.y - old.y)) }
             else { pointer = target }
         }
         guard let point = pointer else { return }
@@ -732,13 +737,13 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if pinchEvent == .singleClick { click(.left, at: point) }
         else if pinchEvent == .doubleClick { click(.double, at: point) }
         else if rightEdge && leftRatio > 0.45 { click(.right, at: point) }
-        if !leftPinch.active { pinchPoint = nil }
+        if !leftPinch.active && !pinchApproach.active { pinchPoint = nil }
     }
     func loseHand() {
         preview.rawPoint = nil; preview.joints = [:]
         if tracked { mic.setArmed(false) }
         scrollPinch.reset(); leftPinch.reset(); rightPinch.reset()
-        fistOpen.reset(); pinchPoint = nil; gestureBusy = false
+        fistOpen.reset(); pinchApproach.reset(); pinchPoint = nil; gestureBusy = false
         missionControlTransition.cancel()
         targetLock.clear(); lastRawPoint = nil
         targetOverlay.hide()
@@ -950,8 +955,8 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let requestedWidth = (json["width"] as? NSNumber)?.doubleValue ?? 640
         let requestedHeight = (json["height"] as? NSNumber)?.doubleValue ?? 400
         guard requestedWidth.isFinite, requestedHeight.isFinite else { fail("Invalid screenshot region."); return }
-        let width = min(screen.width, clamp(requestedWidth, 100, 1000))
-        let height = min(screen.height, clamp(requestedHeight, 100, 800))
+        let width = min(screen.width, clamp(requestedWidth, 100, screen.width))
+        let height = min(screen.height, clamp(requestedHeight, 100, screen.height))
         let region = CGRect(x: clamp(x.doubleValue - width / 2, screen.minX, screen.maxX - width),
                             y: clamp(y.doubleValue - height / 2, screen.minY, screen.maxY - height),
                             width: width, height: height)

@@ -197,10 +197,7 @@ class Coordinator:
         width, height = self.region_width, self.region_height
         if self.screen is None:
             return (x - width / 2, y - height / 2, width, height)
-        left, top, screen_width, screen_height = self.screen
-        width, height = min(width, screen_width), min(height, screen_height)
-        return (max(left, min(x - width / 2, left + screen_width - width)),
-                max(top, min(y - height / 2, top + screen_height - height)), width, height)
+        return self.screen
 
     @staticmethod
     def request_id(event):
@@ -311,7 +308,7 @@ class Coordinator:
                 command["choice_id"] = choice.choice_id
                 self.status("Listening for a number — checking the same targets…")
             else:
-                self.status("Listening — searching text near your pointer…")
+                self.status("Listening — searching the screen…")
             self.send_native(command)
         elif kind == "speech_cancel":
             search = self.pending.pop(self.request_id(event), None)

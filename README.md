@@ -166,3 +166,5 @@ The second command requires prepared `tiny.en` and `base.en` models and permissi
 - [Offline setup for the standalone speech module](docs/OFFLINE_SETUP.md)
 
 Dependencies: [Argmax WhisperKit](https://github.com/argmaxinc/argmax-oss-swift), [Apple Vision](https://developer.apple.com/documentation/vision), and the locally installed PrismML Bonsai-2 model and LM Studio MLX runtime.
+
+Voice recognition searches the entire primary screen. Pointer sensitivity is increased, with stronger smoothing to reduce jitter. As thumb approaches the middle, ring, or pinky finger, the cursor freezes before contact; opening the fingers releases it.
