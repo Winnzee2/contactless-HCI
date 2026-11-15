@@ -227,7 +227,10 @@ class TestCoordinator(unittest.TestCase):
                 self.assertIn("a", self.coordinator.pending)
                 self.assertEqual(self.coordinator.worker_request, "a")
                 self.assertFalse(any(event["type"] == "voice_action" for event in self.native))
-        for fields in ({"action": "forward"}, {"action": "click"}, {"action": "back", "keys": ["cmd", "q"]}):
+        for fields in ({"action": "forward"}, {"action": "click"}, {"action": ["tab_left"]},
+                       {"action": "back", "keys": ["cmd", "q"]},
+                       {"action": "tab_left", "x": 12}, {"action": "tab_right", "target_id": "t1"},
+                       {"action": "tab_right", "keys": ["cmd", "q"]}):
             with self.subTest(fields=fields):
                 self.setUp()
                 self.submit()
@@ -238,6 +241,76 @@ class TestCoordinator(unittest.TestCase):
         self.begin()
         self.coordinator.handle({"type": "navigation", "request_id": "a", "action": "back"}, source="worker")
         self.assertFalse(any(event["type"] == "voice_action" for event in self.native))
+
+    def test_tab_navigation_needs_no_label_and_confirms_only_the_requested_direction(self):
+        for direction in ("left", "right"):
+            with self.subTest(direction=direction):
+                self.setUp()
+                action = "tab_" + direction
+                self.begin()
+                self.coordinator.handle({"type": "targets", "request_id": "a", "targets": []}, source="native")
+                self.coordinator.handle({"type": "speech_audio", "request_id": "a", "pcm_base64": "AAA=",
+                                         "sample_rate": 16000}, source="native")
+                event = {"type": "navigation", "request_id": "a", "action": action}
+                self.coordinator.handle(event, source="native")
+                self.assertEqual(self.coordinator.worker_request, "a")
+                self.assertFalse(any(item["type"] == "voice_action" for item in self.native))
+                self.coordinator.handle(event, source="worker")
+                self.assertEqual(self.native[-1], {"type": "voice_action", "action": action, "request_id": "a"})
+                self.assertEqual(self.coordinator.pending_navigation.action, action)
+                self.assertEqual(self.native[-2]["message"], f"Switching to the tab on the {direction}…")
+                ack = {"type": "action", "source": "voice", "action": action, "request_id": "a"}
+                opposite = "tab_right" if direction == "left" else "tab_left"
+                for wrong in (dict(ack, action=opposite), dict(ack, action="back"), dict(ack, request_id="old")):
+                    self.coordinator.handle(wrong, source="native")
+                    self.assertEqual(self.coordinator.pending_navigation.action, action)
+                self.coordinator.handle(ack, source="worker")
+                self.assertIsNotNone(self.coordinator.pending_navigation)
+                self.coordinator.handle(ack, source="native")
+                self.assertIsNone(self.coordinator.pending_navigation)
+                self.assertEqual(self.native[-1]["message"], f"Tab {direction} shortcut sent.")
+                count = len(self.native)
+                self.coordinator.handle(event, source="worker")
+                self.coordinator.handle(ack, source="native")
+                self.assertEqual(len(self.native), count)
+                self.assertEqual(self.coordinator.last_target, "")
+
+    def test_stale_tab_ack_cannot_confirm_a_new_opposite_direction(self):
+        self.submit()
+        self.coordinator.handle({"type": "navigation", "request_id": "a", "action": "tab_left"}, source="worker")
+        self.coordinator.handle({"type": "speech_start", "request_id": "b"}, source="native")
+        self.coordinator.handle({"type": "targets", "request_id": "b", "targets": []}, source="native")
+        self.coordinator.handle({"type": "speech_audio", "request_id": "b", "pcm_base64": "AAA=",
+                                 "sample_rate": 16000}, source="native")
+        self.coordinator.handle({"type": "navigation", "request_id": "b", "action": "tab_right"}, source="worker")
+        for request_id, action in (("a", "tab_left"), ("a", "tab_right"), ("b", "tab_left")):
+            self.coordinator.handle({"type": "action", "source": "voice", "request_id": request_id,
+                                     "action": action}, source="native")
+            self.assertEqual(self.coordinator.pending_navigation.request_id, "b")
+            self.assertEqual(self.coordinator.pending_navigation.action, "tab_right")
+        self.coordinator.handle({"type": "action", "source": "voice", "request_id": "b",
+                                 "action": "tab_right"}, source="native")
+        self.assertIsNone(self.coordinator.pending_navigation)
+        self.assertEqual(self.native[-1]["message"], "Tab right shortcut sent.")
+
+    def test_tab_navigation_obeys_pause_tracking_and_expiry_cancellation(self):
+        for action in ("tab_left", "tab_right"):
+            for end in ("pause", "hand_loss", "expiry"):
+                with self.subTest(action=action, end=end):
+                    self.setUp()
+                    self.submit()
+                    if end == "pause":
+                        self.coordinator.handle({"type": "state", "armed": False}, source="native")
+                    elif end == "hand_loss":
+                        self.coordinator.handle({"type": "pointer", "tracked": False}, source="native")
+                    else:
+                        for _ in range(84):
+                            self.now += .25
+                            self.point()
+                    self.coordinator.handle({"type": "navigation", "request_id": "a", "action": action}, source="worker")
+                    self.assertFalse(any(item["type"] == "voice_action" for item in self.native))
+                    self.assertIsNone(self.coordinator.pending_navigation)
+                    self.assertIsNone(self.coordinator.worker_request)
 
     def test_stale_navigation_is_cancelled_without_releasing_worker_backpressure_early(self):
         for cancellation in ({"type": "state", "armed": False}, {"type": "pointer", "tracked": False},

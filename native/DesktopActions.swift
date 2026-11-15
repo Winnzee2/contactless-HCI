@@ -45,6 +45,26 @@ func makeHistoryBackEvents() -> [CGEvent]? {
     return [down, up]
 }
 
+enum BrowserTabDirection {
+    case left
+    case right
+}
+
+/// Select the adjacent browser tab without posting input. Command-Shift brackets
+/// select tabs by position; Control-Tab can instead use recently visited order.
+func makeBrowserTabEvents(_ direction: BrowserTabDirection) -> [CGEvent]? {
+    // Fixed kVK_ANSI_LeftBracket / kVK_ANSI_RightBracket codes from HIToolbox.
+    // The controller permits this action only in the still-active browser.
+    let key: CGKeyCode = direction == .left ? 0x21 : 0x1E
+    guard let down = CGEvent(keyboardEventSource: nil, virtualKey: key, keyDown: true),
+          let up = CGEvent(keyboardEventSource: nil, virtualKey: key, keyDown: false) else { return nil }
+    for event in [down, up] {
+        event.flags = [.maskCommand, .maskShift]
+        event.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
+    }
+    return [down, up]
+}
+
 private func registeredBrowserMatches(_ identifier: String?, handlers: Set<String>) -> Bool {
     guard let identifier = identifier, !identifier.isEmpty else { return false }
     return handlers.contains(identifier)
@@ -129,6 +149,17 @@ func desktopActionSelfTest() -> (tests: Int, failures: [String]) {
     check(back.allSatisfy { $0.flags == .maskCommand }, "History Back has Command and no extra modifiers")
     check(back.allSatisfy { $0.getIntegerValueField(.keyboardEventAutorepeat) == 0 },
           "History Back never requests keyboard repeat")
+    for (direction, key): (BrowserTabDirection, Int64) in [(.left, 0x21), (.right, 0x1E)] {
+        let events = makeBrowserTabEvents(direction) ?? []
+        check(events.map(\.type) == [.keyDown, .keyUp],
+              "Tab \(direction) emits exactly one keyboard down/up pair")
+        check(events.map { $0.getIntegerValueField(.keyboardEventKeycode) } == [key, key],
+              "Tab \(direction) uses its fixed bracket key on both edges")
+        check(events.count == 2 && events.allSatisfy { $0.flags == [.maskCommand, .maskShift] },
+              "Tab \(direction) has Command-Shift and no extra modifiers")
+        check(events.count == 2 && events.allSatisfy { $0.getIntegerValueField(.keyboardEventAutorepeat) == 0 },
+              "Tab \(direction) never requests keyboard repeat")
+    }
     let handlers: Set<String> = ["com.apple.Safari", "org.example.NewBrowser"]
     check(registeredBrowserMatches("com.apple.Safari", handlers: handlers), "A registered browser is accepted")
     check(registeredBrowserMatches("org.example.NewBrowser", handlers: handlers),

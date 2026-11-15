@@ -2,7 +2,7 @@
 
 On an Apple Silicon Mac, move the pointer with your index finger, pinch to click, and name a nearby visible control to target it across applications. Camera recognition, speech transcription, accessibility inspection, screen text recognition, and Bonsai inference all run locally. No browser extension or integration with a particular website is required.
 
-**Voice positions the pointer or navigates back; it never clicks.** For example, point near a visible label and say “Codex.” The pointer moves to the recognized target and locks in place. For the first **3 seconds**, finger movement cannot pull it away, giving you time to pinch and release your thumb and middle finger for a left click, or hold the pinch for a double-click.
+**Voice positions the pointer, navigates back, or switches browser tabs; it never clicks.** For example, point near a visible label and say “Codex.” The pointer moves to the recognized target and locks in place. For the first **3 seconds**, finger movement cannot pull it away, giving you time to pinch and release your thumb and middle finger for a left click, or hold the pinch for a double-click.
 
 A click-through highlight shows the selected target and the remaining hold time. After the countdown, it shows “Pinch to click” while the target remains locked. It disappears when you click, release the lock, pause, lose hand tracking, or begin another voice search.
 
@@ -44,6 +44,7 @@ You may need to quit and restart after changing permissions. The app starts **PA
 | Clench a fist briefly, then fully open your hand | Show the current desktop's windows in Mission Control |
 | Name a nearby control, such as “Codex” or “open Reports” | Argmax transcription → accessibility labels and local OCR → Bonsai selection → pointer positioning; no click |
 | Say **“last page”** | Go back to the previous page in the active browser or the previously visited folder in Finder, without moving or clicking the pointer |
+| Say **“tab left”** or **“tab right”** | Switch to the adjacent tab on that side in the active browser window, even when tab names are truncated |
 | Say “two,” “number two,” or “第二个” while numbered circles are visible | Select target 2, check its current position, and move the pointer there; no click |
 | Say “cancel” while numbered circles are visible | Dismiss the choices |
 | Move your finger during the first 3 seconds after targeting | Keep the pointer on the target while you prepare a pinch |
@@ -55,6 +56,8 @@ You may need to quit and restart after changing permissions. The app starts **PA
 A single click, double-click, or right click releases the target lock. A held middle-finger pinch sends one double-click without an extra preliminary single click; holding longer does not repeat it. The pointer stays at the pinch position until you release.
 
 With control enabled and your hand visible, say **“last page”** to use Back in the active browser or Finder window. In Finder, it returns to the previously visited folder in that window's navigation history. The phrase works without a readable screen target and clears any numbered choices or pointer lock. It must be the complete utterance; a sentence mentioning “last page” does not navigate. Recognition and command handling stay local. Local folders remain available without Wi-Fi; offline web content must already be available locally or in the browser cache. The command uses the standard macOS Command-[ Back shortcut; without a previous history entry, nothing changes.
+
+With a browser window active, say **“tab left”** or **“tab right”** to switch one tab in that direction. Keep control enabled and your hand visible. These complete utterances use the browser's previous/next-tab shortcut, so they work without reading the tab titles. They clear numbered choices and the pointer lock, send no click, and run locally. First/last-tab behavior follows the browser's normal tab cycling. Tab switching applies to browsers; Finder continues to support **“last page”** for folder history.
 
 For Mission Control, hold a closed fist for about **0.35 seconds**, then open your hand within **2 seconds** and keep it open briefly. The gesture cancels pending voice targeting and does not send a mouse click. A short cooldown prevents repeated triggers. Both new gestures run locally and also work in `--gesture-only` mode.
 

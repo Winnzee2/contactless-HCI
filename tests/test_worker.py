@@ -77,10 +77,40 @@ class TestVoiceWorker(unittest.TestCase):
             self.assertEqual([record["type"] for record in records], ["worker_ready", "transcript", "navigation"])
             self.assertEqual(records[-1], {"type": "navigation", "request_id": "a", "action": "back"})
 
+    def test_tab_navigation_requires_one_complete_direction_phrase(self):
+        for transcript, expected in (("tab left", "tab_left"), ("Tab Right.", "tab_right"),
+                                     ("  TAB   LEFT!  ", "tab_left"), ("ＴＡＢ ＲＩＧＨＴ。", "tab_right")):
+            with self.subTest(transcript=transcript):
+                self.assertEqual(navigation_intent(transcript), expected)
+        for transcript in ("Don't tab left", "do not tab right", "if I say tab left", "the tab right of this one",
+                           "tab left and click", "tab right then last page", "tab left or tab right",
+                           "tab left; open settings", "tab right\nclick", "left tab", "next tab", '"tab right"'):
+            with self.subTest(transcript=transcript):
+                self.assertIsNone(navigation_intent(transcript))
+
+    def test_tab_navigation_bypasses_target_matching_and_number_choice(self):
+        requests = [self.request, dict(self.request, targets=[]),
+                    dict(self.request, type="choose", targets=[{"id": "first", "label": "1"},
+                                                               {"id": "second", "label": "2"}])]
+        for transcript, expected in (("Tab left.", "tab_left"), ("Tab right!", "tab_right")):
+            for request in requests:
+                with self.subTest(transcript=transcript, request=request), patch.object(worker, "WhisperKitEngine") as engine, \
+                     patch.object(worker, "BonsaiClient") as model, \
+                     patch.object(worker.sys, "stdin", io.StringIO(json.dumps(request) + "\n")), \
+                     redirect_stdout(io.StringIO()) as output:
+                    engine.return_value.transcribe_bytes.return_value = SimpleNamespace(text=transcript)
+                    self.assertEqual(worker.run(self.args), 0)
+                    self.assertEqual(engine.return_value.transcribe_bytes.call_count, 1)
+                    model.return_value.select_target.assert_not_called()
+                records = [json.loads(line) for line in output.getvalue().splitlines()]
+                self.assertEqual([record["type"] for record in records], ["worker_ready", "transcript", "navigation"])
+                self.assertEqual(records[-1], {"type": "navigation", "request_id": "a", "action": expected})
+
     def test_mentions_and_negations_do_not_emit_navigation(self):
         for kind in ("search", "choose"):
             request = dict(self.request, type=kind, targets=[{"id": "one", "label": "1"}])
-            for transcript in ("Do not go to last page", "If I say last page", "last page and click"):
+            for transcript in ("Do not go to last page", "If I say last page", "last page and click",
+                               "Do not tab left", "If I say tab right", "tab right and click"):
                 with self.subTest(kind=kind, transcript=transcript), patch.object(worker, "WhisperKitEngine") as engine, \
                      patch.object(worker, "BonsaiClient") as model, \
                      patch.object(worker.sys, "stdin", io.StringIO(json.dumps(request) + "\n")), \

@@ -10,6 +10,8 @@ When several nearby targets match the same spoken name, each gets a numbered cir
 
 Clench a fist briefly, then fully open your hand to display the current desktop's windows in Mission Control. Starting a pinch or fist gesture invalidates any pending voice result so that an old result cannot move the pointer during the action. Voice cannot double-click or open Mission Control. The explicit phrase “last page” sends Back to the active browser or Finder window. In Finder, it returns to the previously visited folder in that window's navigation history. Naming a target continues to position the pointer without clicking.
 
+When browser tab titles are shortened or hidden, say “tab left” or “tab right” as a complete utterance to switch to the adjacent tab in the active browser window. Control must be enabled and your hand visible. These browser-only commands use previous/next-tab shortcuts instead of title matching, clear numbered choices and pointer locks, and send no mouse click. They run fully locally and follow the browser's normal cycling behavior at the first or last tab. Finder folder history remains available through “last page.”
+
 ## Discovery and Selection
 
 1. Speech onset captures a region of about 720 × 420 points around the pointer on the primary display.

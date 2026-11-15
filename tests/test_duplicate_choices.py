@@ -227,6 +227,25 @@ class TestDuplicateChoices(unittest.TestCase):
         self.assertIsNone(self.coordinator.pending_navigation)
         self.assertEqual(self.native[-1]["message"], "Back navigation sent.")
 
+    def test_tab_navigation_clears_choices_before_sending_the_bound_direction(self):
+        for action in ("tab_left", "tab_right"):
+            with self.subTest(action=action):
+                self.setUp()
+                self.create_choices()
+                self.choose()
+                self.worker_event("navigation", request_id="number", action=action)
+                commands = [command for command in self.native if command["type"] in ("clear_choices", "voice_action")]
+                self.assertEqual(commands, [
+                    {"type": "clear_choices", "choice_id": "name"},
+                    {"type": "voice_action", "action": action, "request_id": "number", "choice_id": "name"}])
+                self.assertIsNone(self.coordinator.choices)
+                self.assertIsNone(self.coordinator.pending_move)
+                self.assertEqual(self.coordinator.pending_navigation.action, action)
+                self.native_event("action", source="voice", action="back", request_id="number")
+                self.assertIsNotNone(self.coordinator.pending_navigation)
+                self.native_event("action", source="voice", action=action, request_id="number")
+                self.assertIsNone(self.coordinator.pending_navigation)
+
     def test_expired_choices_cannot_navigate_from_late_number_transcription(self):
         self.create_choices()
         self.choose()

@@ -1,6 +1,14 @@
 # 离线验证记录与复现
 
-The [cross-application verification](CROSS_APP.md) includes successful Wi-Fi-off target-selection checks in Finder, TextEdit, and Safari. After extending Back navigation to Finder, the suite passes **148 Python tests and 213 native checks**. Earlier human-input and component records retain their original scope; they do not substitute for physical acceptance of the new gestures or voice flows.
+The [cross-application verification](CROSS_APP.md) includes successful Wi-Fi-off target-selection checks in Finder, TextEdit, and Safari. After adding adjacent browser-tab navigation, the suite passes **154 Python tests and 237 native checks**. Earlier human-input and component records retain their original scope; they do not substitute for physical acceptance of the new gestures or voice flows.
+
+## Adjacent Browser Tabs
+
+On November 14, 2026 (Eastern time), the exact phrases “tab left” and “tab right” were added as browser-only commands after Argmax transcription. They send fixed Command-Shift-bracket shortcuts to the browser bound to the recording, independent of tab titles or screen candidates. Finder's “last page” behavior remains unchanged. Tests cover both directions, complete-phrase matching, negative and embedded mentions, empty captures, numbered-choice cancellation, stale requests, and acknowledgments bound to the requested direction.
+
+With **Wi-Fi Off**, locally synthesized speech passed through real Argmax, the coordinator, and the production native controller. A dedicated Safari window contained three local pages with long, truncated tab titles. Its actual selected tab changed in the sequence Beta → Alpha → Beta → Gamma → Beta after “tab left,” “tab right,” “tab right,” and “tab left.” The fixture pages were served only on loopback. An initial attempt was blocked by a test-created file-opening sheet; dismissing that sheet allowed the unchanged shortcuts to work. The test simulated hand freshness and did not capture camera or microphone input. The original cursor position and Wi-Fi state were restored afterward.
+
+All **154 Python tests**, including real Argmax integration, and **237 native checks** passed while Wi-Fi was off. A separate real Argmax replay passed all six positive, negative, and numbered-choice cases without sending system actions. Actual tab changes were verified in Safari; other browsers use the same standard shortcuts, and custom shortcut settings may differ. Local evidence is in ignored `.build/verification/tab-navigation/`: `worker-replay.json`, `pipeline.json`, `last-events.json`, `python-tests.txt`, `native-tests.json`, and `wifi.json`. Recordings, screenshots, and fixture pages are not committed.
 
 ## Finder Folder Navigation
 

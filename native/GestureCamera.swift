@@ -84,12 +84,12 @@ struct VoiceAction {
     init?(_ json: [String: Any], bounds: CGRect) {
         guard json["type"] as? String == "voice_action",
               let action = json["action"] as? String,
-              ["move_to", "back", "none"].contains(action),
+              ["move_to", "back", "tab_left", "tab_right", "none"].contains(action),
               let id = json["request_id"] as? String, !id.isEmpty, id.count <= 128 else { return nil }
         self.action = action
         self.requestID = id
         if action == "none" { self.point = nil; return }
-        if action == "back" {
+        if ["back", "tab_left", "tab_right"].contains(action) {
             // Navigation has a fixed meaning, never caller-supplied keys or URLs.
             guard Set(json.keys).isSubset(of: ["type", "action", "request_id", "choice_id"]),
                   json["choice_id"] == nil || json["choice_id"] is String else { return nil }
@@ -596,7 +596,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         } else if !audioStarted {
             speechLabel.stringValue = audioStarting ? "Microphone is preparing locally." : "Microphone is not ready. Gesture control remains available."
         } else if armed {
-            speechLabel.stringValue = "Keep your hand visible. Say a label to point, or say last page to go back in Finder or your browser. Gestures click."
+            speechLabel.stringValue = "Keep your hand visible. Say a label to point, last page to go back, or tab left / tab right in your browser. Gestures click."
         } else {
             speechLabel.stringValue = "Voice is paused. Enable pointer, show your hand, then say a visible label."
         }
@@ -783,8 +783,8 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         seenIDs.append(instruction.requestID)
         if seenIDs.count > 128 { seenIDs.removeFirst() }
         if instruction.action == "none" { return }
-        if instruction.action == "back" {
-            performVoiceBack(instruction, choiceID: json["choice_id"] as? String)
+        if ["back", "tab_left", "tab_right"].contains(instruction.action) {
+            performVoiceNavigation(instruction, choiceID: json["choice_id"] as? String)
             return
         }
         guard let point = instruction.point else { return }
@@ -824,26 +824,39 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         emit(["type": "pointer", "x": point.x, "y": point.y, "tracked": true])
         emit(["type": "action", "action": "move_to", "source": "voice", "x": point.x, "y": point.y, "request_id": instruction.requestID])
     }
-    func performVoiceBack(_ instruction: VoiceAction, choiceID: String?) {
+    func performVoiceNavigation(_ instruction: VoiceAction, choiceID: String?) {
         func fail(_ message: String) {
             emit(["type": "error", "request_id": instruction.requestID, "message": message])
         }
         guard armed, tracked, acceptsVoiceTarget, now() - lastHandTime <= 0.4, AXIsProcessTrusted(),
               let capture = currentCapture(instruction.requestID), capture.choiceID == choiceID else {
-            fail("Navigation context changed or hand control paused. Say last page again.")
+            fail("Navigation context changed or hand control paused. Say the command again.")
             return
         }
         guard let application = NSWorkspace.shared.frontmostApplication,
-              application.processIdentifier == capture.foregroundPID,
-              supportsHistoryBack(bundleIdentifier: application.bundleIdentifier) else {
-            fail("Last page works in Finder or a web browser. Bring that window to the front and try again.")
+              application.processIdentifier == capture.foregroundPID else {
+            fail("The active application changed. Say the command again.")
             return
         }
-        guard let events = makeHistoryBackEvents() else { fail("Could not create the Back shortcut."); return }
+        let shortcut: [CGEvent]?
+        if instruction.action == "back" {
+            guard supportsHistoryBack(bundleIdentifier: application.bundleIdentifier) else {
+                fail("Last page works in Finder or a web browser. Bring that window to the front and try again.")
+                return
+            }
+            shortcut = makeHistoryBackEvents()
+        } else if instruction.action == "tab_left" || instruction.action == "tab_right" {
+            guard isBrowserApplication(bundleIdentifier: application.bundleIdentifier) else {
+                fail("Tab left and tab right work in a web browser. Bring your browser to the front and try again.")
+                return
+            }
+            shortcut = makeBrowserTabEvents(instruction.action == "tab_left" ? .left : .right)
+        } else { fail("Unsupported navigation command."); return }
+        guard let events = shortcut else { fail("Could not create the navigation shortcut."); return }
         guard armed, tracked, acceptsVoiceTarget, now() - lastHandTime <= 0.4,
               currentCapture(instruction.requestID) != nil,
               NSWorkspace.shared.frontmostApplication?.processIdentifier == application.processIdentifier else {
-            fail("Navigation context changed before the Back action. Say last page again.")
+            fail("Navigation context changed before the action. Say the command again.")
             return
         }
         targetLock.clear(); targetOverlay.hide(); duplicateOverlay.hide()
@@ -852,7 +865,7 @@ final class CameraController: NSObject, NSApplicationDelegate, NSWindowDelegate,
         // Deliver only to the application bound to this recording. A focus change
         // cannot redirect the shortcut to an editor or another application.
         for event in events { event.postToPid(application.processIdentifier) }
-        emit(["type": "action", "source": "voice", "action": "back", "request_id": instruction.requestID])
+        emit(["type": "action", "source": "voice", "action": instruction.action, "request_id": instruction.requestID])
     }
     func showChoices(_ json: [String: Any]) {
         guard let id = json["choice_id"] as? String, !id.isEmpty, id.count <= 100 else { return }
@@ -1021,17 +1034,19 @@ func selfTest() -> Bool {
     check(VoiceAction(json, bounds: bounds) == nil, "out-of-screen target rejected")
     json["x"] = true
     check(VoiceAction(json, bounds: bounds) == nil, "boolean coordinate rejected")
-    for forbiddenAction in ["click", "double_click", "right_click", "mission_control"] {
+    for forbiddenAction in ["click", "double_click", "right_click", "mission_control", "tab_up", "tab_down"] {
         json["action"] = forbiddenAction
         check(VoiceAction(json, bounds: bounds) == nil, "gesture actions cannot be supplied by voice")
     }
-    let back: [String: Any] = ["type": "voice_action", "action": "back", "request_id": "back-test"]
-    check(VoiceAction(back, bounds: bounds)?.action == "back", "Explicit browser Back requires no target coordinates")
-    check(VoiceAction(back, bounds: bounds)?.point == nil, "Browser Back does not position or click the mouse")
-    for field in ["x", "y", "url", "key_code", "modifiers"] {
-        var invalidBack = back
-        invalidBack[field] = 1
-        check(VoiceAction(invalidBack, bounds: bounds) == nil, "Browser Back cannot accept arbitrary coordinates URLs or keys")
+    for action in ["back", "tab_left", "tab_right"] {
+        let navigation: [String: Any] = ["type": "voice_action", "action": action, "request_id": "navigation-test"]
+        check(VoiceAction(navigation, bounds: bounds)?.action == action, "Explicit navigation requires no target coordinates")
+        check(VoiceAction(navigation, bounds: bounds)?.point == nil, "Navigation does not position or click the mouse")
+        for field in ["x", "y", "url", "key_code", "modifiers"] {
+            var invalid = navigation
+            invalid[field] = 1
+            check(VoiceAction(invalid, bounds: bounds) == nil, "Navigation cannot accept arbitrary coordinates URLs or keys")
+        }
     }
     let nativeRect = CGRect(x: 200, y: 300, width: 80, height: 40)
     let nativePoint = CGPoint(x: nativeRect.midX, y: nativeRect.midY)

@@ -14,4 +14,4 @@ def navigation_intent(transcript: str) -> Optional[str]:
         return None
     text = " ".join(unicodedata.normalize("NFKC", transcript).casefold().split())
     text = text.strip(" .!?。，？！")
-    return "back" if text == "last page" else None
+    return {"last page": "back", "tab left": "tab_left", "tab right": "tab_right"}.get(text)
