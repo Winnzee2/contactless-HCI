@@ -12,6 +12,17 @@ A click-through highlight shows the selected target and the remaining hold time.
 
 If several nearby targets match the name you say, the app circles **every matching target** and labels them **1, 2, 3, …**, ordered from top to bottom and left to right. Keep your hand visible and say a number, such as “two,” “number two,” or “第二个.” The pointer moves to that target at the original numbered position, then uses the same 15-second hold. **Choosing a number never clicks.** Say “cancel” to dismiss the circles; they expire after **15 seconds**.
 
+## Architecture
+
+The app combines a native macOS interface with a Python coordinator and local AI inference:
+
+- **Native Swift layer (`native/`):** Captures camera and microphone input, uses Apple Vision for hand landmarks and screen OCR, reads accessible controls, and renders overlays. Gesture logic converts hand positions into native mouse movement, clicks, and scrolling.
+- **Python coordinator (`desktop.py`, `src/control/`):** Connects the native helper and voice worker through JSON messages. It manages target selection, numbered choices, timeouts, navigation commands, and Jarvis dictation sessions.
+- **Argmax WhisperKit (`src/stt/`):** Runs a locally stored Whisper speech model to convert microphone audio into text. It supplies transcription for both voice targeting and notes; it does not execute commands.
+- **Bonsai:** Runs through a local MLX service and matches spoken requests to candidate labels gathered from Accessibility and OCR. Explicit navigation commands and Jarvis dictation use dedicated rules and bypass Bonsai target matching.
+
+The targeting flow is **microphone → Argmax transcription → Bonsai target matching → validated native cursor movement**. Hand gestures perform clicks. Jarvis instead sends transcribed text to the notepad and saves it as a local text file. Once models and runtimes are installed, all processing works offline without cloud APIs.
+
 ## Launch
 
 On the Mac with models and runtimes already prepared, double-click **[Local Control.app](<.build/Local Control.app>)** in Finder. The `.build` folder is hidden; press `⌘⇧.` in the project folder to show it, or run this command from the project directory:
