@@ -99,8 +99,8 @@ struct PinchApproachLatch {
     mutating func reset() { active = false }
     mutating func update(ratio: Double) -> Bool {
         guard ratio.isFinite, ratio >= 0 else { reset(); return false }
-        if ratio >= 0.75 { active = false }
-        else if ratio <= 0.55 { active = true }
+        if ratio >= 0.60 { active = false }
+        else if ratio <= 0.43 { active = true }
         return active
     }
 }
@@ -301,9 +301,10 @@ func handGestureSelfTest() -> (tests: Int, failures: [String]) {
     }
     var approach = PinchApproachLatch()
     check(!approach.update(ratio: 0.9), "Open fingers allow pointer motion")
-    check(approach.update(ratio: 0.54), "Approaching fingers freeze before contact")
-    check(approach.update(ratio: 0.68), "Approach hysteresis prevents jitter")
-    check(!approach.update(ratio: 0.76), "Opening fingers releases cursor freeze")
+    check(!approach.update(ratio: 0.54), "Separated fingers no longer freeze the cursor")
+    check(approach.update(ratio: 0.42), "Approaching fingers freeze before contact")
+    check(approach.update(ratio: 0.52), "Approach hysteresis prevents jitter")
+    check(!approach.update(ratio: 0.61), "Opening fingers releases cursor freeze")
     _ = approach.update(ratio: 0.2)
     approach.reset()
     check(!approach.active, "Pause and tracking reset release approach freeze")
